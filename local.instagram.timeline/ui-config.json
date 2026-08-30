@@ -28,8 +28,8 @@
       "name": "source_mode",
       "type": "choices",
       "prompt": "Source Mode",
-      "choices": "Profiles,Hashtag,Home",
-      "value": "Profiles"
+      "choices": "Profiles,Hashtag,For You,Following,Favorites",
+      "value": "For You"
     },
     {
       "name": "instagram_sources",

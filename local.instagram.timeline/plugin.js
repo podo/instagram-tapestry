@@ -5,10 +5,8 @@ const apiBase = `${instagramBase}/api/v1`;
 const instagramIconUrl = "https://static.cdninstagram.com/rsrc.php/yw/r/icwX0xAk0pz.webp";
 const defaultIgAppId = "936619743392459";
 const browserUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36";
-const syncStateKey = "syncStateV2";
 const maximumSources = 25;
-const maximumInitialPages = 10;
-const maximumIncrementalPages = 3;
+const maximumPagesPerSource = 10;
 
 function verify() {
   verifyAsync().then(processVerification).catch(processError);
@@ -66,8 +64,8 @@ async function verifyAsync() {
     if (tags.length === 1) result.displayName = `Instagram - #${tags[0]}`;
   }
   else {
-    page = await homeFeedPage(1, null, credentials);
-    result.displayName = "Instagram - Home";
+    page = await homeFeedPage(1, null, credentials, mode);
+    result.displayName = `Instagram - ${sourceLabel()}`;
   }
 
   const accountIdentity = await currentAccountIdentity(credentials);
@@ -80,7 +78,7 @@ async function loadAsync() {
   const mode = normalizedSourceMode();
   if (mode === "profiles") return loadProfileFeeds(credentials);
   if (mode === "hashtag") return loadHashtagFeeds(credentials);
-  return loadHomeFeed(credentials);
+  return loadHomeFeed(credentials, mode);
 }
 
 async function loadProfileFeeds(credentials) {
@@ -99,39 +97,26 @@ async function loadHashtagFeeds(credentials) {
   ));
 }
 
-async function loadHomeFeed(credentials) {
+async function loadHomeFeed(credentials, variant) {
   return loadSources(["home"], "home", credentials, (source, limit, cursor) => (
-    homeFeedPage(limit, cursor, credentials)
+    homeFeedPage(limit, cursor, credentials, variant)
   ));
 }
 
 async function loadSources(sources, kind, credentials, fetchPage) {
-  const signature = currentSyncSignature(kind, sources.join(","));
-  const syncState = syncStateForSignature(signature);
   const limit = normalizedBatchSize();
   const posts = [];
 
   for (const source of sources) {
-    const syncKey = `${kind}:${source}`;
-    const highWaterId = syncHighWater(syncState, syncKey);
-    const fetchedIds = [];
     const sourcePosts = [];
     let cursor = null;
     let pageCount = 0;
-    let reachedKnownItem = false;
 
     do {
       const page = await fetchPage(source, limit, cursor);
       for (const post of page.items || []) {
         if (!post || !post.id) continue;
-        fetchedIds.push(post.id);
         if (!includePost(post)) continue;
-
-        if (highWaterId && compareIds(post.id, highWaterId) <= 0) {
-          reachedKnownItem = true;
-          continue;
-        }
-
         sourcePosts.push(post);
       }
 
@@ -140,19 +125,12 @@ async function loadSources(sources, kind, credentials, fetchPage) {
     } while (
       cursor
       && sourcePosts.length < limit
-      && pageCount < maximumPagesForLoad(highWaterId)
-      && (!highWaterId || !reachedKnownItem)
+      && pageCount < maximumPagesPerSource
     );
 
     posts.push(...sourcePosts.slice(0, limit));
-
-    const newestId = maxId(fetchedIds);
-    if (newestId && (!highWaterId || compareIds(newestId, highWaterId) > 0)) {
-      setSyncHighWater(syncState, syncKey, newestId);
-    }
   }
 
-  writeSyncState(syncState);
   return postsToItems(posts);
 }
 
@@ -218,7 +196,8 @@ async function hashtagWebInfoPage(tag, credentials) {
   };
 }
 
-async function homeFeedPage(count, cursor, credentials) {
+async function homeFeedPage(count, cursor, credentials, variant) {
+  const feedVariant = normalizedHomeVariant(variant);
   const form = [
     ["is_prefetch", "0"],
     ["feed_view_info", ""],
@@ -228,10 +207,14 @@ async function homeFeedPage(count, cursor, credentials) {
     ["_csrftoken", credentials.csrf]
   ];
   if (cursor) form.push(["max_id", cursor]);
+  if (feedVariant) form.push(["feed_type", feedVariant]);
 
   const headers = webHeaders(credentials, `${instagramBase}/`);
   headers["Content-Type"] = "application/x-www-form-urlencoded";
-  const json = await requestJson(`${apiBase}/feed/timeline/`, "POST", encodeQuery(form), headers, "HomeFeed");
+  const endpoint = feedVariant
+    ? `${apiBase}/feed/timeline/?variant=${encodeURIComponent(feedVariant)}`
+    : `${apiBase}/feed/timeline/`;
+  const json = await requestJson(endpoint, "POST", encodeQuery(form), headers, "HomeFeed");
   return {
     items: normalizeMediaItems(json, { sourceKind: "home", sourceValue: "home" }),
     nextCursor: nextCursorFromResponse(json)
@@ -516,8 +499,7 @@ function postToItem(post) {
   const annotations = postAnnotations(post);
   if (annotations.length > 0) item.annotations = annotations;
 
-  let attachments = postMediaAttachments(post);
-  if (attachments.length === 0) attachments = postFallbackAttachments(post);
+  const attachments = postFallbackAttachments(post);
   if (attachments.length > 0) item.attachments = attachments;
 
   item.actions = postActions(post);
@@ -525,12 +507,12 @@ function postToItem(post) {
 }
 
 function postBody(post) {
-  const text = post && post.text ? post.text : "";
-  return captionHtml(text);
-}
-
-function maximumPagesForLoad(highWaterId) {
-  return highWaterId ? maximumIncrementalPages : maximumInitialPages;
+  const parts = [];
+  const visual = postVisualHtml(post);
+  const caption = captionHtml(post && post.text ? post.text : "");
+  if (visual) parts.push(visual);
+  if (caption) parts.push(caption);
+  return parts.join("");
 }
 
 function postIdentity(post) {
@@ -561,7 +543,7 @@ function postAnnotations(post) {
 
 function postFallbackAttachments(post) {
   const attachments = [];
-  if (typeof LinkAttachment !== "undefined") {
+  if ((!showMedia() || postMediaEntries(post).length === 0) && typeof LinkAttachment !== "undefined") {
     const link = LinkAttachment.createWithUrl(post.url);
     link.type = "website";
     link.title = post.authorUsername ? `Instagram post by @${post.authorUsername}` : "Instagram post";
@@ -572,30 +554,47 @@ function postFallbackAttachments(post) {
   return attachments;
 }
 
-function postMediaAttachments(post) {
-  const attachments = [];
-  if (!showMedia() || typeof MediaAttachment === "undefined" || !post || !Array.isArray(post.attachments)) {
-    return attachments;
-  }
+function postVisualHtml(post) {
+  const media = postMediaEntries(post);
+  if (media.length === 0) return "";
 
-  for (const media of post.attachments) {
-    if (!media || !isMediaUrl(media.url)) continue;
-    const attachment = MediaAttachment.createWithUrl(media.url);
-    if (media.mimeType) attachment.mimeType = media.mimeType;
-    if (media.thumbnail) attachment.thumbnail = media.thumbnail;
-    if (media.width > 0 && media.height > 0) {
-      attachment.aspectSize = { width: media.width, height: media.height };
+  const first = media[0];
+  const countLabel = media.length > 1 ? `<span style="position:absolute;right:10px;top:10px;background:rgba(0,0,0,.68);color:#fff;border-radius:999px;padding:4px 8px;font-size:12px;font-weight:700;">1 / ${media.length}</span>` : "";
+  const typeLabel = media.length > 1 ? `<span style="position:absolute;left:10px;top:10px;background:rgba(0,0,0,.68);color:#fff;border-radius:999px;padding:4px 8px;font-size:12px;font-weight:700;">Carousel</span>` : "";
+
+  let html = `<div class="instagram-visual" style="position:relative;margin:0 0 10px 0;background:#000;border-radius:8px;overflow:hidden;">${typeLabel}${countLabel}${mediaElementHtml(first, true)}</div>`;
+  if (media.length > 1) {
+    const thumbnails = media.slice(1, 7).map(entry => mediaThumbHtml(entry)).join("");
+    if (thumbnails) {
+      html += `<div class="instagram-carousel-strip" style="display:grid;grid-template-columns:repeat(3,1fr);gap:4px;margin:-4px 0 10px 0;">${thumbnails}</div>`;
     }
-    attachment.text = media.altText || mediaDescription(media, post);
-    attachments.push(attachment);
   }
-
-  return attachments;
+  return html;
 }
 
-function mediaDescription(media, post) {
-  const author = post && post.authorName ? post.authorName : "Instagram";
-  return /^video/i.test(media.mimeType || "") ? `Video from ${author}` : `Image from ${author}`;
+function postMediaEntries(post) {
+  if (!showMedia() || !post || !Array.isArray(post.attachments)) return [];
+  return post.attachments.filter(media => media && isMediaUrl(media.url));
+}
+
+function mediaElementHtml(media, primary) {
+  const label = escapeAttribute(media.altText || "Instagram media");
+  const style = primary
+    ? "display:block;width:100%;height:auto;max-height:640px;object-fit:contain;background:#000;"
+    : "display:block;width:100%;aspect-ratio:1/1;object-fit:cover;background:#000;border-radius:4px;";
+  if (/^video/i.test(media.mimeType || "")) {
+    const poster = media.thumbnail ? ` poster="${escapeAttribute(media.thumbnail)}"` : "";
+    return `<video controls preload="metadata" src="${escapeAttribute(media.url)}"${poster} aria-label="${label}" style="${style}">${escapeHtml(media.altText || "Instagram video")}</video>`;
+  }
+  return `<img src="${escapeAttribute(media.url)}" alt="${label}" style="${style}">`;
+}
+
+function mediaThumbHtml(media) {
+  const thumbnail = media.thumbnail || media.url;
+  if (!isMediaUrl(thumbnail)) return "";
+  const label = escapeAttribute(media.altText || "Instagram carousel media");
+  const badge = /^video/i.test(media.mimeType || "") ? `<span style="position:absolute;right:5px;top:5px;background:rgba(0,0,0,.68);color:#fff;border-radius:999px;padding:2px 5px;font-size:10px;font-weight:700;">Video</span>` : "";
+  return `<span style="position:relative;display:block;overflow:hidden;background:#000;border-radius:4px;"><img src="${escapeAttribute(thumbnail)}" alt="${label}" style="display:block;width:100%;aspect-ratio:1/1;object-fit:cover;">${badge}</span>`;
 }
 
 function postActions(post) {
@@ -1006,63 +1005,19 @@ function includePost(post) {
   return true;
 }
 
-function currentSyncSignature(kind, query) {
-  return JSON.stringify({
-    mode: normalizedSourceMode(),
-    kind,
-    query,
-    includeReels: includeReels(),
-    showMetrics: showMetrics(),
-    showMedia: showMedia(),
-    showLocation: showLocation(),
-    batchSize: normalizedBatchSize(),
-    igAppId: normalizedIgAppId()
-  });
-}
-
-function newSyncState(signature) {
-  return {
-    signature,
-    highWaterBySource: {}
-  };
-}
-
-function syncStateForSignature(signature) {
-  const syncState = readSyncState();
-  return syncState.signature === signature ? syncState : newSyncState(signature);
-}
-
-function readSyncState() {
-  const stored = safeGetItem(syncStateKey);
-  if (!stored) return newSyncState(null);
-  try {
-    const parsed = JSON.parse(stored);
-    return parsed && typeof parsed === "object" ? parsed : newSyncState(null);
-  }
-  catch (error) {
-    return newSyncState(null);
-  }
-}
-
-function syncHighWater(state, key) {
-  if (!state || !state.highWaterBySource || !key) return null;
-  return state.highWaterBySource[key] || null;
-}
-
-function setSyncHighWater(state, key, highWaterId) {
-  if (!state.highWaterBySource) state.highWaterBySource = {};
-  state.highWaterBySource[key] = highWaterId;
-}
-
-function writeSyncState(state) {
-  safeSetItem(syncStateKey, JSON.stringify(state));
-}
-
 function normalizedSourceMode() {
   const value = normalizedChoice(stringInput("source_mode"));
   if (value === "hashtag") return "hashtag";
-  if (value === "home") return "home";
+  if (value === "home" || value === "for you" || value === "for_you" || value === "foryou") return "for_you";
+  if (value === "following") return "following";
+  if (value === "favorites" || value === "favourites") return "favorites";
   return "profiles";
+}
+
+function normalizedHomeVariant(mode) {
+  if (mode === "following") return "following";
+  if (mode === "favorites") return "favorites";
+  return "";
 }
 
 function normalizedProfiles() {
@@ -1101,7 +1056,9 @@ function cleanHashtag(value) {
 
 function sourceLabel() {
   const mode = normalizedSourceMode();
-  if (mode === "home") return "Home";
+  if (mode === "for_you") return "For You";
+  if (mode === "following") return "Following";
+  if (mode === "favorites") return "Favorites";
   if (mode === "hashtag") {
     const tags = normalizedHashtags();
     if (tags.length === 0) return "Hashtag";
@@ -1273,15 +1230,6 @@ function compareIds(left, right) {
   return a > b ? 1 : -1;
 }
 
-function maxId(ids) {
-  let highest = null;
-  for (const id of ids || []) {
-    if (!id) continue;
-    if (!highest || compareIds(id, highest) > 0) highest = id;
-  }
-  return highest;
-}
-
 function unixDate(value) {
   const number = Number(value);
   if (Number.isFinite(number) && number > 0) {
@@ -1328,22 +1276,4 @@ function headerValue(headers, name) {
   if (!headers || typeof headers !== "object") return null;
   const key = Object.keys(headers).find(candidate => candidate.toLowerCase() === name.toLowerCase());
   return key ? String(headers[key]) : null;
-}
-
-function safeGetItem(key) {
-  try {
-    return typeof getItem === "function" ? getItem(key) : null;
-  }
-  catch (error) {
-    return null;
-  }
-}
-
-function safeSetItem(key, value) {
-  try {
-    if (typeof setItem === "function") setItem(key, value);
-  }
-  catch (error) {
-    // Ignore storage failures so a feed load can still complete.
-  }
 }

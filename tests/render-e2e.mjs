@@ -201,12 +201,11 @@ function renderPage(item, comments) {
     .who { min-width: 0; flex: 1; }
     .name { font-weight: 750; line-height: 1.2; }
     .userline { color: #666875; font-size: 13px; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .media-stage { background: #111; display: grid; gap: 2px; }
-    .media-stage.count-2 { grid-template-columns: 1fr; }
-    .media-frame { min-height: 360px; display: flex; align-items: center; justify-content: center; background: #111; }
-    .media-frame img, .media-frame video { width: 100%; max-height: 560px; object-fit: contain; display: block; background: #111; }
     .post-body { background: #fff; }
     .post-body p { margin: 0; }
+    .post-body .instagram-visual { margin: 0 0 10px 0 !important; border-radius: 0 !important; }
+    .post-body .instagram-visual img, .post-body .instagram-visual video { width: 100%; min-height: 340px; max-height: 580px; object-fit: contain; display: block; background: #111; }
+    .post-body .instagram-carousel-strip { padding: 0 16px; }
     .post-body p:not(.instagram-visual) { padding: 12px 16px 0; font-size: 13px; line-height: 1.4; color: #303038; }
     .post-body .instagram-caption small { font-size: 13px; line-height: 1.4; }
     .post-body a { color: #0b63ce; text-decoration: none; font-weight: 620; }
@@ -258,7 +257,6 @@ function renderPost(item) {
         <div class="userline">${escapeHtml(item.author.username)} · Instagram</div>
       </div>
     </header>
-    ${renderAttachments(item.attachments || [])}
     <div class="post-body" data-testid="post-body">${item.body || ""}</div>
     <div class="content">
       <div class="annotations">
@@ -270,21 +268,6 @@ function renderPost(item) {
       </div>
     </div>
   </article>`;
-}
-
-function renderAttachments(attachments) {
-  if (!attachments.length) return "";
-  return `<div class="media-stage count-${attachments.length}" data-testid="media-stage">
-    ${attachments.map(renderAttachment).join("")}
-  </div>`;
-}
-
-function renderAttachment(attachment) {
-  if (/^video/i.test(attachment.mimeType || "")) {
-    const poster = attachment.thumbnail ? ` poster="${attr(attachment.thumbnail)}"` : "";
-    return `<div class="media-frame"><video controls preload="metadata" src="${attr(attachment.url)}"${poster}>${escapeHtml(attachment.text || "Video")}</video></div>`;
-  }
-  return `<div class="media-frame"><img src="${attr(attachment.url)}" alt="${attr(attachment.text || "Instagram image")}"></div>`;
 }
 
 function renderComment(comment) {
@@ -360,14 +343,14 @@ try {
   assert.match(await page.locator("body").innerText(), /12,890 likes/);
   assert.match(await page.locator("body").innerText(), /Location: San Francisco/);
 
-  const mediaBox = await page.locator('[data-testid="media-stage"] .media-frame').first().boundingBox();
-  assert.ok(mediaBox && mediaBox.width > 300 && mediaBox.height > 300, "media grid should be visible");
-  assert.equal(await page.locator('[data-testid="media-stage"] img').count(), 1);
-  assert.equal(await page.locator('[data-testid="media-stage"] video').count(), 1);
+  const mediaBox = await page.locator('[data-testid="post-body"] .instagram-visual').first().boundingBox();
+  assert.ok(mediaBox && mediaBox.width > 300 && mediaBox.height > 300, "primary media should be visible");
+  assert.equal(await page.locator('[data-testid="post-body"] .instagram-visual img').count(), 1);
+  assert.equal(await page.locator('[data-testid="post-body"] .instagram-carousel-strip img').count(), 1);
   const order = await page.evaluate(() => {
-    const media = document.querySelector('[data-testid="media-stage"]');
-    const body = document.querySelector('[data-testid="post-body"]');
-    return Boolean(media && body && media.compareDocumentPosition(body) & Node.DOCUMENT_POSITION_FOLLOWING);
+    const media = document.querySelector('[data-testid="post-body"] .instagram-visual');
+    const caption = document.querySelector('[data-testid="post-body"] .instagram-caption');
+    return Boolean(media && caption && media.compareDocumentPosition(caption) & Node.DOCUMENT_POSITION_FOLLOWING);
   });
   assert.ok(order, "media should render before caption body");
   assert.equal(await page.locator('[data-testid="post-body"] .instagram-caption small').count(), 1);
@@ -385,8 +368,8 @@ try {
   await page.waitForSelector('[data-testid="post-card"]');
   const desktopBox = await page.locator('[data-testid="post-card"]').boundingBox();
   assert.ok(desktopBox && desktopBox.width > 680 && desktopBox.height > 650, "desktop card should be visible and fully laid out");
-  assert.equal(await page.locator('[data-testid="media-stage"] img').count(), 1);
-  assert.equal(await page.locator('[data-testid="media-stage"] video').count(), 1);
+  assert.equal(await page.locator('[data-testid="post-body"] .instagram-visual img').count(), 1);
+  assert.equal(await page.locator('[data-testid="post-body"] .instagram-carousel-strip img').count(), 1);
   await page.screenshot({ path: desktopScreenshotPath, fullPage: true });
 }
 finally {

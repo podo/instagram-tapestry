@@ -319,10 +319,11 @@ async function run() {
   assert.strictEqual(pluginConfig.icon, "https://static.cdninstagram.com/rsrc.php/yw/r/icwX0xAk0pz.webp");
   assert.strictEqual(pluginConfig.provides_attachments, true);
   assert.strictEqual(pluginConfig.minimum_app_version, "1.4");
-  assert.strictEqual(pluginConfig.version, 4);
+  assert.strictEqual(pluginConfig.version, 5);
   assert.ok(uiConfig.inputs.some(input => input.name === "cookie_header"));
   assert.ok(uiConfig.inputs.some(input => input.name === "instagram_sources"));
   assert.ok(uiConfig.inputs.some(input => input.name === "ig_app_id"));
+  assert.ok(uiConfig.inputs.some(input => input.name === "source_mode" && input.choices === "Profiles,Hashtag,For You,Following,Favorites"));
   assert.ok(discovery.sites.includes("instagram.com"));
   assert.ok(discovery.input.some(input => input.url === "https://www.instagram.com/$1/"));
   assert.ok(discovery.input.some(input => input.url === "https://www.instagram.com/explore/tags/$1/"));
@@ -362,8 +363,11 @@ async function run() {
   assert.strictEqual(item.uri, "https://www.instagram.com/p/COPENAI123/");
   assert.strictEqual(item.date.toISOString(), "2026-08-28T08:00:00.000Z");
   assert.strictEqual(item.contentWarning, undefined);
-  assert.match(item.body, /^<p class="instagram-caption"><small>Launching &lt;AI&gt; research/);
-  assert.doesNotMatch(item.body, /instagram-visual/);
+  assert.match(item.body, /^<div class="instagram-visual"/);
+  assert.match(item.body, /instagram-carousel-strip/);
+  assert.match(item.body, /Research preview/);
+  assert.match(item.body, /Reel video alt text/);
+  assert.ok(item.body.indexOf("instagram-visual") < item.body.indexOf("instagram-caption"));
   assert.match(item.body, /Launching &lt;AI&gt; research/);
   assert.doesNotMatch(item.body, /<AI>/);
   assert.match(item.body, /href="https:\/\/www\.instagram\.com\/sama\/">@sama/);
@@ -373,15 +377,7 @@ async function run() {
   assert.strictEqual(item.author.username, "@openai");
   assert.strictEqual(item.author.uri, "https://www.instagram.com/openai/");
   assert.ok(item.author.avatar.startsWith("data:image/svg+xml"));
-  assert.strictEqual(item.attachments.length, 2);
-  assert.strictEqual(item.attachments[0].kind, "media");
-  assert.ok(item.attachments[0].url.startsWith("data:image/svg+xml"));
-  assert.strictEqual(item.attachments[0].text, "Research preview alt text");
-  assert.strictEqual(item.attachments[0].aspectSize.width, 1200);
-  assert.strictEqual(item.attachments[0].aspectSize.height, 900);
-  assert.strictEqual(item.attachments[1].url, "https://cdn.example.test/reel.mp4");
-  assert.strictEqual(item.attachments[1].thumbnail.startsWith("data:image/svg+xml"), true);
-  assert.strictEqual(item.attachments[1].mimeType, "video/mp4");
+  assert.strictEqual(item.attachments, undefined);
   assert.match(item.annotations[0].text, /Carousel/);
   assert.match(item.annotations[1].text, /Location: San Francisco/);
   assert.match(item.annotations[2].text, /12,890 likes/);
@@ -393,9 +389,7 @@ async function run() {
     url: "https://www.instagram.com/p/COPENAI123/"
   });
 
-  const initialState = JSON.parse(context._state.get("syncStateV2"));
-  assert.strictEqual(initialState.highWaterBySource["profile:openai"], "3330000000000000001");
-  assert.strictEqual(initialState.highWaterBySource["profile:natgeo"], "3330000000000000002");
+  assert.strictEqual(context._state.has("syncStateV2"), false);
 
   const pagedInitial = makeContext({
     instagram_sources: "openai",
@@ -427,8 +421,9 @@ async function run() {
   vm.runInContext("load()", context);
   await settle();
   assert.ifError(context.error);
-  assert.strictEqual(context.results.length, 1);
-  assert.strictEqual(context.results[0].uri, "https://www.instagram.com/p/COPENAI999/");
+  assert.strictEqual(context.results.length, 3);
+  assert.ok(context.results.some(result => result.uri === "https://www.instagram.com/p/COPENAI999/"));
+  assert.ok(context.results.some(result => result.uri === "https://www.instagram.com/p/COPENAI123/"));
 
   const noMedia = makeContext({ instagram_sources: "openai", show_media: "off" });
   vm.runInContext("load()", noMedia);
@@ -463,11 +458,11 @@ async function run() {
   assert.ok(apiCall(hashtag, "/feed/tag/ai/"), "hashtag mode should request tag feed");
   assert.strictEqual(hashtag.results[0].uri, "https://www.instagram.com/p/HASHAI/");
 
-  const home = makeContext({ source_mode: "Home", instagram_sources: "" });
+  const home = makeContext({ source_mode: "For You", instagram_sources: "" });
   vm.runInContext("verify()", home);
   await settle();
   assert.ifError(home.error);
-  assert.strictEqual(home.verification.displayName, "Instagram - Home");
+  assert.strictEqual(home.verification.displayName, "Instagram - For You");
   assert.strictEqual(home.verification.icon, "https://static.cdninstagram.com/rsrc.php/yw/r/icwX0xAk0pz.webp");
   vm.runInContext("load()", home);
   await settle();
@@ -476,6 +471,22 @@ async function run() {
   assert.ok(homeApi, "home mode should request timeline feed");
   assert.strictEqual(homeApi.method, "POST");
   assert.match(homeApi.parameters, /reason=cold_start_fetch/);
+
+  const following = makeContext({ source_mode: "Following", instagram_sources: "" });
+  vm.runInContext("load()", following);
+  await settle();
+  assert.ifError(following.error);
+  const followingApi = apiCall(following, "/feed/timeline/?variant=following");
+  assert.ok(followingApi, "following mode should request the following timeline variant");
+  assert.match(followingApi.parameters, /feed_type=following/);
+
+  const favorites = makeContext({ source_mode: "Favourites", instagram_sources: "" });
+  vm.runInContext("load()", favorites);
+  await settle();
+  assert.ifError(favorites.error);
+  const favoritesApi = apiCall(favorites, "/feed/timeline/?variant=favorites");
+  assert.ok(favoritesApi, "favorites mode should accept the British spelling and request the favorites variant");
+  assert.match(favoritesApi.parameters, /feed_type=favorites/);
 
   const comments = makeContext({ instagram_sources: "openai" });
   vm.runInContext("load()", comments);
