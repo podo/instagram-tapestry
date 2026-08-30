@@ -5,8 +5,9 @@ const apiBase = `${instagramBase}/api/v1`;
 const instagramIconUrl = "https://static.cdninstagram.com/rsrc.php/yw/r/icwX0xAk0pz.webp";
 const defaultIgAppId = "936619743392459";
 const browserUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36";
-const syncStateKey = "syncStateV1";
+const syncStateKey = "syncStateV2";
 const maximumSources = 25;
+const maximumInitialPages = 10;
 const maximumIncrementalPages = 3;
 
 function verify() {
@@ -117,6 +118,7 @@ async function loadSources(sources, kind, credentials, fetchPage) {
     const syncKey = `${kind}:${source}`;
     const highWaterId = syncHighWater(syncState, syncKey);
     const fetchedIds = [];
+    const sourcePosts = [];
     let cursor = null;
     let pageCount = 0;
     let reachedKnownItem = false;
@@ -133,12 +135,19 @@ async function loadSources(sources, kind, credentials, fetchPage) {
           continue;
         }
 
-        posts.push(post);
+        sourcePosts.push(post);
       }
 
       cursor = page.nextCursor;
       pageCount += 1;
-    } while (highWaterId && cursor && !reachedKnownItem && pageCount < maximumIncrementalPages);
+    } while (
+      cursor
+      && sourcePosts.length < limit
+      && pageCount < maximumPagesForLoad(highWaterId)
+      && (!highWaterId || !reachedKnownItem)
+    );
+
+    posts.push(...sourcePosts.slice(0, limit));
 
     const newestId = maxId(fetchedIds);
     if (newestId && (!highWaterId || compareIds(newestId, highWaterId) > 0)) {
@@ -520,7 +529,7 @@ function postToItem(post) {
 function postBody(post) {
   const visual = showMedia() ? postVisualHtml(post) : "";
   const text = post && post.text ? post.text : "";
-  return `${visual}${paragraphsHtml(text)}`;
+  return `${visual}${captionHtml(text)}`;
 }
 
 function postVisualHtml(post) {
@@ -537,10 +546,14 @@ function mediaInlineHtml(media) {
   const poster = media.thumbnail ? ` poster="${escapeAttribute(media.thumbnail)}"` : "";
 
   if (/^video/i.test(media.mimeType || "")) {
-    return `<p class="instagram-visual"><video controls preload="metadata" src="${escapeAttribute(media.url)}"${poster}${width}${height}>${escapeHtml(alt)}</video></p>`;
+    return `<p class="instagram-visual"><video controls preload="metadata" style="display:block;max-width:100%;height:auto;" src="${escapeAttribute(media.url)}"${poster}${width}${height}>${escapeHtml(alt)}</video></p>`;
   }
 
-  return `<p class="instagram-visual"><img src="${escapeAttribute(media.url)}" alt="${escapeAttribute(alt)}"${width}${height} /></p>`;
+  return `<p class="instagram-visual"><img style="display:block;max-width:100%;height:auto;" src="${escapeAttribute(media.url)}" alt="${escapeAttribute(alt)}"${width}${height} /></p>`;
+}
+
+function maximumPagesForLoad(highWaterId) {
+  return highWaterId ? maximumIncrementalPages : maximumInitialPages;
 }
 
 function postIdentity(post) {
@@ -1169,6 +1182,17 @@ function paragraphsHtml(text) {
     .map(part => part.trim())
     .filter(Boolean)
     .map(part => `<p>${linkifiedText(part).replace(/\n/g, "<br>")}</p>`);
+  return paragraphs.join("");
+}
+
+function captionHtml(text) {
+  const value = String(text || "").trim();
+  if (!value) return "";
+  const paragraphs = value
+    .split(/\n{2,}/)
+    .map(part => part.trim())
+    .filter(Boolean)
+    .map(part => `<p class="instagram-caption"><small>${linkifiedText(part).replace(/\n/g, "<br>")}</small></p>`);
   return paragraphs.join("");
 }
 

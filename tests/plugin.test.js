@@ -253,7 +253,11 @@ function makeContext(overrides = {}) {
       if (url.includes("/feed/user/")) {
         const match = url.match(/\/feed\/user\/([^/]+)\/username/);
         const username = match ? decodeURIComponent(match[1]) : "openai";
-        const body = context.profileBodies[username] || profileFeedBody(username, null, null);
+        const byCursor = context.profileBodies[username];
+        const cursor = new URL(url).searchParams.get("max_id") || "";
+        const body = byCursor && typeof byCursor === "object" && !(byCursor instanceof Error) && !Array.isArray(byCursor) && Object.prototype.hasOwnProperty.call(byCursor, cursor)
+          ? byCursor[cursor]
+          : byCursor || profileFeedBody(username, null, null);
         if (body instanceof Error) throw body;
         return JSON.stringify(body);
       }
@@ -313,9 +317,9 @@ async function run() {
 
   assert.strictEqual(pluginConfig.id, "local.instagram.timeline");
   assert.strictEqual(pluginConfig.icon, "https://static.cdninstagram.com/rsrc.php/yw/r/icwX0xAk0pz.webp");
-  assert.strictEqual(pluginConfig.provides_attachments, false);
+  assert.strictEqual(pluginConfig.provides_attachments, true);
   assert.strictEqual(pluginConfig.minimum_app_version, "1.4");
-  assert.strictEqual(pluginConfig.version, 2);
+  assert.strictEqual(pluginConfig.version, 3);
   assert.ok(uiConfig.inputs.some(input => input.name === "cookie_header"));
   assert.ok(uiConfig.inputs.some(input => input.name === "instagram_sources"));
   assert.ok(uiConfig.inputs.some(input => input.name === "ig_app_id"));
@@ -358,8 +362,9 @@ async function run() {
   assert.strictEqual(item.date.toISOString(), "2026-08-28T08:00:00.000Z");
   assert.strictEqual(item.contentWarning, undefined);
   assert.match(item.body, /^<p class="instagram-visual"><img /);
-  assert.match(item.body, /<video controls preload="metadata" src="https:\/\/cdn\.example\.test\/reel\.mp4"/);
+  assert.match(item.body, /<video controls preload="metadata" style="display:block;max-width:100%;height:auto;" src="https:\/\/cdn\.example\.test\/reel\.mp4"/);
   assert.ok(item.body.indexOf("instagram-visual") < item.body.indexOf("Launching &lt;AI&gt; research"));
+  assert.match(item.body, /<p class="instagram-caption"><small>Launching &lt;AI&gt; research/);
   assert.match(item.body, /Launching &lt;AI&gt; research/);
   assert.doesNotMatch(item.body, /<AI>/);
   assert.match(item.body, /href="https:\/\/www\.instagram\.com\/sama\/">@sama/);
@@ -381,9 +386,31 @@ async function run() {
     url: "https://www.instagram.com/p/COPENAI123/"
   });
 
-  const initialState = JSON.parse(context._state.get("syncStateV1"));
+  const initialState = JSON.parse(context._state.get("syncStateV2"));
   assert.strictEqual(initialState.highWaterBySource["profile:openai"], "3330000000000000001");
   assert.strictEqual(initialState.highWaterBySource["profile:natgeo"], "3330000000000000002");
+
+  const pagedInitial = makeContext({
+    instagram_sources: "openai",
+    batch_size: "12",
+    profileBodies: {
+      openai: {
+        "": profileFeedBody("openai", [
+          mediaItem("openai", { pk: "3330000000000000101", code: "PAGE001", taken_at: 1787905001 }),
+          mediaItem("openai", { pk: "3330000000000000102", code: "PAGE002", taken_at: 1787905002 })
+        ], "cursor-2"),
+        "cursor-2": profileFeedBody("openai", [
+          mediaItem("openai", { pk: "3330000000000000103", code: "PAGE003", taken_at: 1787905003 }),
+          mediaItem("openai", { pk: "3330000000000000104", code: "PAGE004", taken_at: 1787905004 })
+        ], null)
+      }
+    }
+  });
+  vm.runInContext("load()", pagedInitial);
+  await settle();
+  assert.ifError(pagedInitial.error);
+  assert.strictEqual(pagedInitial.results.length, 4);
+  assert.ok(apiCall(pagedInitial, "max_id=cursor-2"), "initial load should request the next page when the first page is short");
 
   context.profileBodies.openai = profileFeedBody("openai", [
     mediaItem("openai", { pk: "3330000000000000003", code: "COPENAI999", caption: "Newer post" }),

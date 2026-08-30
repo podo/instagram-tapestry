@@ -35,8 +35,8 @@ or include them in screenshots.
 - Home feed attempt using the logged-in session
 - Native post-style Tapestry items with author identity and avatar
 - Media-first post bodies so captions follow photos, videos, and carousel media
-- Photos, videos, Reels, and carousel media through Tapestry's inline media extraction
-- Caption rendering with linked `@mentions`, `#hashtags`, and URLs
+- Photos, videos, Reels, and carousel media rendered inline before the caption
+- Smaller caption rendering with linked `@mentions`, `#hashtags`, and URLs
 - Optional metrics for likes, comments, views, and plays
 - Optional location annotations
 - Comments context action for expanding visible comments inside Tapestry
@@ -60,10 +60,9 @@ other response shapes, but private Instagram web endpoints are not stable
 contracts.
 
 Tapestry displays explicit media attachments under an item's HTML body. To match
-Instagram's visual-first layout, this connector places media tags before the
-caption in the body and leaves media extraction to Tapestry. Normal posts are not
-marked with a content warning unless Instagram returns an explicit sensitive
-media flag.
+Instagram's visual-first layout, this connector renders media tags directly in
+the item body before the smaller caption text. Normal posts are not marked with a
+content warning unless Instagram returns an explicit sensitive media flag.
 
 ## Development and Tests
 

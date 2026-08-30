@@ -206,7 +206,8 @@ function renderPage(item, comments) {
     .post-body .instagram-visual { position: relative; min-height: 360px; background: #111; display: flex; align-items: center; justify-content: center; border-top: 2px solid #111; }
     .post-body .instagram-visual:first-child { border-top: 0; }
     .post-body .instagram-visual img, .post-body .instagram-visual video { width: 100%; max-height: 560px; object-fit: contain; display: block; background: #111; }
-    .post-body p:not(.instagram-visual) { padding: 14px 16px 0; font-size: 15px; line-height: 1.48; }
+    .post-body p:not(.instagram-visual) { padding: 12px 16px 0; font-size: 13px; line-height: 1.4; color: #303038; }
+    .post-body .instagram-caption small { font-size: 13px; line-height: 1.4; }
     .post-body a { color: #0b63ce; text-decoration: none; font-weight: 620; }
     .video-badge, .count-badge { position: absolute; right: 12px; top: 12px; border-radius: 999px; background: rgba(0,0,0,.68); color: #fff; padding: 6px 9px; font-size: 12px; font-weight: 700; }
     .count-badge { left: 12px; right: auto; }
@@ -349,6 +350,7 @@ try {
   const firstVisualIndex = await page.locator('[data-testid="post-body"]').evaluate(element => element.innerHTML.indexOf("instagram-visual"));
   const captionIndex = await page.locator('[data-testid="post-body"]').evaluate(element => element.innerHTML.indexOf("Launching"));
   assert.ok(firstVisualIndex >= 0 && captionIndex > firstVisualIndex, "caption should render after visual media");
+  assert.equal(await page.locator('[data-testid="post-body"] .instagram-caption small').count(), 1);
   await page.screenshot({ path: screenshotPath, fullPage: true });
 
   await page.click('[data-testid="comments-toggle"]');
