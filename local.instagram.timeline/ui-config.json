@@ -1,0 +1,79 @@
+{
+  "inputs": [
+    {
+      "name": "cookie_header",
+      "type": "text",
+      "prompt": "Cookie Header",
+      "placeholder": "sessionid=...; csrftoken=...; ds_user_id=..."
+    },
+    {
+      "name": "sessionid",
+      "type": "text",
+      "prompt": "sessionid Cookie",
+      "placeholder": "Paste sessionid if not using Cookie Header"
+    },
+    {
+      "name": "csrftoken",
+      "type": "text",
+      "prompt": "csrftoken Cookie",
+      "placeholder": "Paste csrftoken if not using Cookie Header"
+    },
+    {
+      "name": "ds_user_id",
+      "type": "text",
+      "prompt": "ds_user_id Cookie",
+      "placeholder": "Optional, copied from the same browser session"
+    },
+    {
+      "name": "source_mode",
+      "type": "choices",
+      "prompt": "Source Mode",
+      "choices": "Profiles,Hashtag,Home",
+      "value": "Profiles"
+    },
+    {
+      "name": "instagram_sources",
+      "type": "text",
+      "prompt": "Profiles / Hashtags",
+      "placeholder": "openai, natgeo or #ai"
+    },
+    {
+      "name": "include_reels",
+      "type": "switch",
+      "prompt": "Include Reels",
+      "value": "on"
+    },
+    {
+      "name": "show_metrics",
+      "type": "switch",
+      "prompt": "Show Metrics",
+      "value": "on"
+    },
+    {
+      "name": "show_media",
+      "type": "switch",
+      "prompt": "Show Media",
+      "value": "on"
+    },
+    {
+      "name": "show_location",
+      "type": "switch",
+      "prompt": "Show Location",
+      "value": "on"
+    },
+    {
+      "name": "batch_size",
+      "type": "choices",
+      "prompt": "Initial Item Limit",
+      "choices": "12,24,48",
+      "value": "24"
+    },
+    {
+      "name": "ig_app_id",
+      "type": "text",
+      "prompt": "Advanced: IG App ID",
+      "placeholder": "Leave blank for bundled web value",
+      "value": "936619743392459"
+    }
+  ]
+}

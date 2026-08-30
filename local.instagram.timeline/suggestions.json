@@ -1,0 +1,36 @@
+{
+  "variables": [
+    {
+      "name": "instagram_sources",
+      "value": "openai",
+      "title": "OpenAI"
+    },
+    {
+      "name": "instagram_sources",
+      "value": "natgeo",
+      "title": "National Geographic"
+    },
+    {
+      "title": "OpenAI + National Geographic",
+      "names": [
+        "source_mode",
+        "instagram_sources"
+      ],
+      "values": [
+        "Profiles",
+        "openai, natgeo"
+      ]
+    },
+    {
+      "title": "AI Hashtag",
+      "names": [
+        "source_mode",
+        "instagram_sources"
+      ],
+      "values": [
+        "Hashtag",
+        "ai"
+      ]
+    }
+  ]
+}

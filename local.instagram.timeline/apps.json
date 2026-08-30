@@ -1,0 +1,10 @@
+{
+  "apps": [
+    {
+      "id": "com.burbn.instagram",
+      "name": "Instagram",
+      "template": "__URL__",
+      "pattern": "https://(?:www\\.)?instagram\\.com"
+    }
+  ]
+}

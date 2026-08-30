@@ -1,0 +1,30 @@
+{
+  "input": [
+    {
+      "match": "/^@([a-zA-Z0-9._]{1,30})$/",
+      "url": "https://www.instagram.com/$1/"
+    },
+    {
+      "match": "/^#([a-zA-Z0-9_]{1,80})$/",
+      "url": "https://www.instagram.com/explore/tags/$1/"
+    }
+  ],
+  "sites": [
+    "instagram.com",
+    "www.instagram.com"
+  ],
+  "url": [
+    {
+      "extract": "/https:\\/\\/(?:www\\.)?instagram\\.com\\/([a-zA-Z0-9._]{1,30})(?:\\/?(?:[?#].*)?)?$/",
+      "variable": "instagram_sources"
+    },
+    {
+      "extract": "/https:\\/\\/(?:www\\.)?instagram\\.com\\/explore\\/tags\\/([a-zA-Z0-9_]{1,80})(?:\\/?(?:[?#].*)?)?$/",
+      "variable": "instagram_sources"
+    },
+    {
+      "extract": "/https:\\/\\/(?:www\\.)?instagram\\.com\\/(?:p|reel|tv)\\/([a-zA-Z0-9_-]+)/",
+      "variable": "instagram_sources"
+    }
+  ]
+}
