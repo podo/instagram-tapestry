@@ -23,19 +23,28 @@ function performAction(actionId, actionValue, item) {
 }
 
 async function performActionAsync(actionId, actionValue, item) {
-  if (actionId !== "comments") {
-    throw new Error(`Unsupported Instagram action: ${actionId}`);
-  }
+	const value = parseActionValue(actionValue);
+	const mediaId = value.mediaId || value.id;
+	if (actionId === "favorite" || actionId === "unfavorite") {
+		if (!item) throw new Error("Could not update a favorite without an item.");
+		return toggleFavorite(item, mediaId || item.uri, actionId === "favorite");
+	}
 
-  const value = parseActionValue(actionValue);
-  const mediaId = value.mediaId || value.id;
-  if (!mediaId) throw new Error("Could not determine the Instagram media ID for comments.");
+	if (!["comments", "like", "unlike", "save", "unsave", "repost", "unrepost"].includes(actionId)) {
+		throw new Error(`Unsupported Instagram action: ${actionId}`);
+	}
+	if (!mediaId) throw new Error(`Could not determine the Instagram media ID for ${actionId}.`);
 
-  const credentials = normalizedCredentials();
-  const postUrl = value.url || (item && item.uri) || `${instagramBase}/p/${mediaId}/`;
-  const page = await mediaCommentsPage(mediaId, credentials);
-  const comments = commentsToItems(page.comments, postUrl);
-  return item ? [item].concat(comments) : comments;
+	const credentials = normalizedCredentials();
+	const postUrl = value.url || (item && item.uri) || `${instagramBase}/p/${mediaId}/`;
+	if (actionId === "comments") {
+		const page = await mediaCommentsPage(mediaId, credentials);
+		const comments = commentsToItems(page.comments, postUrl);
+		return item ? [item].concat(comments) : comments;
+	}
+
+	await performMediaAction(actionId, mediaId, credentials);
+	return toggleRemoteAction(item, actionId);
 }
 
 async function verifyAsync() {
@@ -345,6 +354,28 @@ function normalizePrivateMedia(raw, context) {
     comments: finiteNumber(media.comment_count),
     views: finiteNumber(media.view_count),
     plays: finiteNumber(media.play_count || media.video_play_count),
+    liked: booleanValue(
+      media.has_liked,
+      media.user_has_liked,
+      media.viewer && media.viewer.has_liked,
+      media.viewer && media.viewer.liked
+    ),
+    saved: booleanValue(
+      media.has_viewer_saved,
+      media.has_saved,
+      media.user_has_saved,
+      media.is_saved,
+      media.viewer && media.viewer.has_saved,
+      media.viewer && media.viewer.saved
+    ),
+    reposted: booleanValue(
+      media.has_viewer_reposted,
+      media.has_reposted,
+      media.user_has_reposted,
+      media.is_reposted,
+      media.viewer && media.viewer.has_reposted,
+      media.viewer && media.viewer.reposted
+    ),
     sourceKind: context.sourceKind,
     sourceValue: context.sourceValue,
     contentWarning: mediaContentWarning(media)
@@ -380,6 +411,29 @@ function normalizeGraphqlMedia(node, context) {
     comments: finiteNumber(node.edge_media_to_comment && node.edge_media_to_comment.count),
     views: finiteNumber(node.video_view_count),
     plays: finiteNumber(node.video_play_count),
+    liked: booleanValue(
+      node.viewer_has_liked,
+      node.has_liked,
+      node.viewer && node.viewer.has_liked,
+      node.viewer && node.viewer.liked
+    ),
+    saved: booleanValue(
+      node.has_viewer_saved,
+      node.has_saved,
+      node.user_has_saved,
+      node.is_saved,
+      node.viewer && node.viewer.has_saved,
+      node.viewer && node.viewer.saved
+    ),
+    reposted: booleanValue(
+      node.viewer_has_reposted,
+      node.has_viewer_reposted,
+      node.has_reposted,
+      node.user_has_reposted,
+      node.is_reposted,
+      node.viewer && node.viewer.has_reposted,
+      node.viewer && node.viewer.reposted
+    ),
     sourceKind: context.sourceKind,
     sourceValue: context.sourceValue,
     contentWarning: mediaContentWarning(node)
@@ -559,15 +613,16 @@ function postVisualHtml(post) {
   if (media.length === 0) return "";
 
   const first = media[0];
-  const countLabel = media.length > 1 ? `<span style="position:absolute;right:10px;top:10px;background:rgba(0,0,0,.68);color:#fff;border-radius:999px;padding:4px 8px;font-size:12px;font-weight:700;">1 / ${media.length}</span>` : "";
-  const typeLabel = media.length > 1 ? `<span style="position:absolute;left:10px;top:10px;background:rgba(0,0,0,.68);color:#fff;border-radius:999px;padding:4px 8px;font-size:12px;font-weight:700;">Carousel</span>` : "";
 
-  let html = `<div class="instagram-visual" style="position:relative;margin:0 0 10px 0;background:#000;border-radius:8px;overflow:hidden;">${typeLabel}${countLabel}${mediaElementHtml(first, true)}</div>`;
+  // Loom's timeline preview only understands a small HTML subset. Keep the
+  // first image/video inside a paragraph so it remains visible in the card.
+  let html = `<p class="instagram-visual">${mediaElementHtml(first, true)}</p>`;
   if (media.length > 1) {
     const thumbnails = media.slice(1, 7).map(entry => mediaThumbHtml(entry)).join("");
     if (thumbnails) {
-      html += `<div class="instagram-carousel-strip" style="display:grid;grid-template-columns:repeat(3,1fr);gap:4px;margin:-4px 0 10px 0;">${thumbnails}</div>`;
+      html += `<p class="instagram-carousel-strip">${thumbnails}</p>`;
     }
+    html += `<p class="instagram-media-meta"><small>Carousel - 1 / ${media.length}</small></p>`;
   }
   return html;
 }
@@ -593,18 +648,121 @@ function mediaThumbHtml(media) {
   const thumbnail = media.thumbnail || media.url;
   if (!isMediaUrl(thumbnail)) return "";
   const label = escapeAttribute(media.altText || "Instagram carousel media");
-  const badge = /^video/i.test(media.mimeType || "") ? `<span style="position:absolute;right:5px;top:5px;background:rgba(0,0,0,.68);color:#fff;border-radius:999px;padding:2px 5px;font-size:10px;font-weight:700;">Video</span>` : "";
-  return `<span style="position:relative;display:block;overflow:hidden;background:#000;border-radius:4px;"><img src="${escapeAttribute(thumbnail)}" alt="${label}" style="display:block;width:100%;aspect-ratio:1/1;object-fit:cover;">${badge}</span>`;
+  return `<img src="${escapeAttribute(thumbnail)}" alt="${label}" style="display:inline-block;width:31%;height:auto;max-height:180px;object-fit:cover;margin:0 1% 1% 0;">`;
 }
 
 function postActions(post) {
   if (!post || !post.mediaId) return {};
-  return {
-    comments: JSON.stringify({
-      mediaId: post.mediaId,
-      url: post.url
-    })
+  const value = JSON.stringify({
+    mediaId: post.mediaId,
+    url: post.url
+  });
+  const actions = {};
+
+  if (post.liked === true) actions.unlike = value;
+  else actions.like = value;
+
+  if (isFavorite(post.mediaId)) actions.unfavorite = value;
+  else actions.favorite = value;
+
+  if (post.saved === true) actions.unsave = value;
+  else actions.save = value;
+
+  if (post.reposted === true) actions.unrepost = value;
+  else actions.repost = value;
+
+  actions.comments = value;
+  return actions;
+}
+
+async function performMediaAction(actionId, mediaId, credentials) {
+  const paths = {
+    like: [`/web/likes/${encodeURIComponent(mediaId)}/like/`, `/media/${encodeURIComponent(mediaId)}/like/`],
+    unlike: [`/web/likes/${encodeURIComponent(mediaId)}/unlike/`, `/media/${encodeURIComponent(mediaId)}/unlike/`],
+    save: [`/web/save/${encodeURIComponent(mediaId)}/save/`, `/media/${encodeURIComponent(mediaId)}/save/`],
+    unsave: [`/web/save/${encodeURIComponent(mediaId)}/unsave/`, `/media/${encodeURIComponent(mediaId)}/unsave/`],
+    repost: [`/web/media/${encodeURIComponent(mediaId)}/repost/`, `/media/${encodeURIComponent(mediaId)}/repost/`],
+    unrepost: [`/web/media/${encodeURIComponent(mediaId)}/unrepost/`, `/media/${encodeURIComponent(mediaId)}/unrepost/`]
+  }[actionId];
+  if (!paths) throw new Error(`Unsupported Instagram media action: ${actionId}`);
+
+  let lastError = null;
+  for (const path of paths) {
+    try {
+      const headers = webHeaders(credentials, `${instagramBase}/`);
+      headers["Content-Type"] = "application/x-www-form-urlencoded";
+      const parameters = encodeQuery([["_csrftoken", credentials.csrf]]);
+      await requestJson(`${apiBase}${path}`, "POST", parameters, headers, actionId);
+      return;
+    }
+    catch (error) {
+      lastError = error;
+      if (error.instagramStatus !== 404) throw error;
+    }
+  }
+  throw lastError || new Error(`Instagram could not perform ${actionId}.`);
+}
+
+function toggleRemoteAction(item, actionId) {
+  if (!item) return item;
+  const replacements = {
+    like: "unlike",
+    unlike: "like",
+    save: "unsave",
+    unsave: "save",
+    repost: "unrepost",
+    unrepost: "repost"
   };
+  const replacement = replacements[actionId];
+  if (!replacement) return item;
+
+  const actions = { ...(item.actions || {}) };
+  delete actions[actionId];
+  actions[replacement] = actionValueForItem(item);
+  item.actions = actions;
+  return item;
+}
+
+function toggleFavorite(item, mediaId, shouldFavorite) {
+  const key = String(mediaId || item.uri || "");
+  const favorites = readFavoriteIds();
+  const index = favorites.indexOf(key);
+  if (shouldFavorite && index < 0) favorites.push(key);
+  if (!shouldFavorite && index >= 0) favorites.splice(index, 1);
+  if (typeof setItem === "function") setItem("instagram.favoriteIds", JSON.stringify(favorites));
+
+  const actions = { ...(item.actions || {}) };
+  delete actions.favorite;
+  delete actions.unfavorite;
+  actions[shouldFavorite ? "unfavorite" : "favorite"] = actionValueForItem(item);
+  item.actions = actions;
+  return item;
+}
+
+function actionValueForItem(item) {
+  const actions = item && item.actions ? item.actions : {};
+  for (const key of ["like", "unlike", "save", "unsave", "repost", "unrepost", "favorite", "unfavorite", "comments"]) {
+    if (actions[key]) return actions[key];
+  }
+  return JSON.stringify({ url: item && item.uri });
+}
+
+function isFavorite(mediaId) {
+  return readFavoriteIds().includes(String(mediaId || ""));
+}
+
+function readFavoriteIds() {
+  if (typeof getItem !== "function") return [];
+  const stored = getItem("instagram.favoriteIds");
+  if (Array.isArray(stored)) return stored.map(value => String(value));
+  if (typeof stored !== "string" || !stored) return [];
+  try {
+    const parsed = JSON.parse(stored);
+    return Array.isArray(parsed) ? parsed.map(value => String(value)) : [];
+  }
+  catch (error) {
+    return [];
+  }
 }
 
 function normalizeComments(comments) {
@@ -1206,6 +1364,13 @@ function formatCount(value) {
 function finiteNumber(value) {
   const number = Number(value);
   return Number.isFinite(number) && number > 0 ? number : 0;
+}
+
+function booleanValue(...values) {
+  for (const value of values) {
+    if (typeof value === "boolean") return value;
+  }
+  return null;
 }
 
 function stringId(value) {

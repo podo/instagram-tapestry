@@ -249,6 +249,31 @@ function renderPage(item, comments) {
 
 function renderPost(item) {
   const annotations = item.annotations || [];
+  const actionLabels = {
+    like: "Like",
+    unlike: "Remove Like",
+    favorite: "Add Favorite",
+    unfavorite: "Remove Favorite",
+    save: "Save",
+    unsave: "Remove Save",
+    repost: "Repost",
+    unrepost: "Remove Repost",
+    comments: "Comments"
+  };
+  const actionIcons = {
+    like: "♡",
+    unlike: "♥",
+    favorite: "☆",
+    unfavorite: "★",
+    save: "□",
+    unsave: "▣",
+    repost: "↗",
+    unrepost: "↗",
+    comments: "⌕"
+  };
+  const actionButtons = Object.keys(item.actions || {})
+    .map(actionId => `<button type="button" class="action-icon" data-testid="action-${actionId}" aria-label="${actionLabels[actionId] || actionId}">${actionIcons[actionId] || "•"}</button>`)
+    .join("");
   return `<article class="card" data-testid="post-card">
     <header class="head">
       <div class="avatar-ring"><img src="${attr(item.author.avatar)}" alt=""></div>
@@ -263,7 +288,7 @@ function renderPost(item) {
         ${annotations.map(annotation => `<span class="pill">${escapeHtml(annotation.text)}</span>`).join("")}
       </div>
       <div class="actions">
-        <div class="glyphs" aria-label="Instagram action glyphs"><span>♡</span><span>⌕</span><span>↗</span><span>□</span></div>
+        <div class="glyphs" aria-label="Instagram actions">${actionButtons}</div>
         <button type="button" data-testid="comments-toggle">Comments</button>
       </div>
     </div>
@@ -342,6 +367,12 @@ try {
   assert.match(bodyText, /#machinelearning/);
   assert.match(await page.locator("body").innerText(), /12,890 likes/);
   assert.match(await page.locator("body").innerText(), /Location: San Francisco/);
+  assert.equal(await page.locator('[data-testid^="action-"]').count(), 5);
+  assert.equal(await page.locator('[data-testid="action-like"]').count(), 1);
+  assert.equal(await page.locator('[data-testid="action-favorite"]').count(), 1);
+  assert.equal(await page.locator('[data-testid="action-save"]').count(), 1);
+  assert.equal(await page.locator('[data-testid="action-repost"]').count(), 1);
+  assert.equal(await page.locator('[data-testid="action-comments"]').count(), 1);
 
   const mediaBox = await page.locator('[data-testid="post-body"] .instagram-visual').first().boundingBox();
   assert.ok(mediaBox && mediaBox.width > 300 && mediaBox.height > 300, "primary media should be visible");

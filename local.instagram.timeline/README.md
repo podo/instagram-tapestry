@@ -40,8 +40,9 @@ or include them in screenshots.
 - Smaller caption rendering with linked `@mentions`, `#hashtags`, and URLs
 - Optional metrics for likes, comments, views, and plays
 - Optional location annotations
+- Like, Favorite, Save, and Repost actions with stateful remove actions
 - Comments context action for expanding visible comments inside Tapestry
-- Incremental refresh per profile, hashtag, or home feed
+- Current-batch refresh with bounded pagination per profile, hashtag, or home feed
 - Feed Finder support for common Instagram inputs
 
 ## Reliability Notes
@@ -51,9 +52,10 @@ change response shapes, require a checkpoint, expire cookies, rate-limit the
 account, or block automated requests. If the feed stops loading, refresh the
 cookies by logging in again through the helper or your browser.
 
-The connector is read-only. It does not like posts, publish posts, send messages,
-follow accounts, or fetch private data outside what your logged-in web session
-can already read.
+Like, Favorite, Save, and Repost actions use the same logged-in session and
+change your Instagram account when selected. The connector does not publish
+new posts, send messages, follow accounts, or fetch private data outside what
+your logged-in web session can already read.
 
 Profile feeds try the feed-by-username endpoint first because username-to-ID
 profile lookup is often more brittle. The connector still includes fallbacks for
@@ -62,9 +64,9 @@ contracts.
 
 Tapestry displays native media attachments after body text and shows only the
 first four timeline thumbnails. To keep Instagram visual-first, this connector
-renders photos, videos, Reels, and carousel entries inline before the smaller
-caption text. Normal posts are not marked with a content warning unless
-Instagram returns an explicit sensitive media flag.
+renders photos, videos, Reels, and carousel entries with preview-safe inline
+HTML before the smaller caption text. Normal posts are not marked with a
+content warning unless Instagram returns an explicit sensitive media flag.
 
 ## Development and Tests
 

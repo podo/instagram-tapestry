@@ -319,7 +319,7 @@ async function run() {
   assert.strictEqual(pluginConfig.icon, "https://static.cdninstagram.com/rsrc.php/yw/r/icwX0xAk0pz.webp");
   assert.strictEqual(pluginConfig.provides_attachments, true);
   assert.strictEqual(pluginConfig.minimum_app_version, "1.4");
-  assert.strictEqual(pluginConfig.version, 5);
+  assert.strictEqual(pluginConfig.version, 6);
   assert.ok(uiConfig.inputs.some(input => input.name === "cookie_header"));
   assert.ok(uiConfig.inputs.some(input => input.name === "instagram_sources"));
   assert.ok(uiConfig.inputs.some(input => input.name === "ig_app_id"));
@@ -329,6 +329,9 @@ async function run() {
   assert.ok(discovery.input.some(input => input.url === "https://www.instagram.com/explore/tags/$1/"));
   assert.ok(suggestions.variables.some(variable => variable.title === "AI Hashtag"));
   assert.ok(actions.items.some(action => action.id === "comments" && action.role === "context"));
+  assert.ok(actions.items.some(action => action.id === "favorite" && action.icon === "star"));
+  assert.ok(actions.items.some(action => action.id === "save" && action.icon === "tapestry.bookmark"));
+  assert.ok(actions.items.some(action => action.id === "repost" && action.icon === "tapestry.boost"));
   assert.ok(apps.apps.some(app => app.name === "Instagram" && app.template === "__URL__"));
   assert.strictEqual("@openai".match(regexFromPattern(discovery.input[0].match))[1], "openai");
   assert.strictEqual("#machinelearning".match(regexFromPattern(discovery.input[1].match))[1], "machinelearning");
@@ -363,7 +366,7 @@ async function run() {
   assert.strictEqual(item.uri, "https://www.instagram.com/p/COPENAI123/");
   assert.strictEqual(item.date.toISOString(), "2026-08-28T08:00:00.000Z");
   assert.strictEqual(item.contentWarning, undefined);
-  assert.match(item.body, /^<div class="instagram-visual"/);
+  assert.match(item.body, /^<p class="instagram-visual"><img /);
   assert.match(item.body, /instagram-carousel-strip/);
   assert.match(item.body, /Research preview/);
   assert.match(item.body, /Reel video alt text/);
@@ -388,8 +391,94 @@ async function run() {
     mediaId: "3330000000000000001_12345",
     url: "https://www.instagram.com/p/COPENAI123/"
   });
+  assert.deepStrictEqual(JSON.parse(item.actions.like), {
+    mediaId: "3330000000000000001_12345",
+    url: "https://www.instagram.com/p/COPENAI123/"
+  });
+  assert.deepStrictEqual(JSON.parse(item.actions.save), {
+    mediaId: "3330000000000000001_12345",
+    url: "https://www.instagram.com/p/COPENAI123/"
+  });
+  assert.deepStrictEqual(JSON.parse(item.actions.repost), {
+    mediaId: "3330000000000000001_12345",
+    url: "https://www.instagram.com/p/COPENAI123/"
+  });
+
+  const stateful = makeContext({
+    instagram_sources: "openai",
+    profileBodies: {
+      openai: profileFeedBody("openai", [mediaItem("openai", {
+        has_liked: true,
+        has_viewer_saved: true,
+        has_viewer_reposted: true
+      })], null)
+    }
+  });
+  vm.runInContext("load()", stateful);
+  await settle();
+  assert.ifError(stateful.error);
+  assert.ok(stateful.results[0].actions.unlike);
+  assert.ok(stateful.results[0].actions.unsave);
+  assert.ok(stateful.results[0].actions.unrepost);
+  assert.strictEqual(stateful.results[0].actions.like, undefined);
+  assert.strictEqual(stateful.results[0].actions.save, undefined);
+  assert.strictEqual(stateful.results[0].actions.repost, undefined);
 
   assert.strictEqual(context._state.has("syncStateV2"), false);
+
+  const actionContext = makeContext({ instagram_sources: "openai" });
+  vm.runInContext("load()", actionContext);
+  await settle();
+  assert.ifError(actionContext.error);
+  const actionItem = actionContext.results[0];
+
+  vm.runInContext(`performAction("favorite", ${JSON.stringify(actionItem.actions.favorite)}, results[0])`, actionContext);
+  await settle();
+  assert.ifError(actionContext.actionError);
+  assert.strictEqual(actionContext.actionResult, actionItem);
+  assert.ok(actionItem.actions.unfavorite);
+  assert.strictEqual(actionItem.actions.favorite, undefined);
+  assert.ok(actionContext._state.has("instagram.favoriteIds"));
+
+  vm.runInContext(`performAction("unfavorite", ${JSON.stringify(actionItem.actions.unfavorite)}, results[0])`, actionContext);
+  await settle();
+  assert.ifError(actionContext.actionError);
+  assert.ok(actionItem.actions.favorite);
+  assert.strictEqual(actionItem.actions.unfavorite, undefined);
+
+  vm.runInContext(`performAction("like", ${JSON.stringify(actionItem.actions.like)}, results[0])`, actionContext);
+  await settle();
+  assert.ifError(actionContext.actionError);
+  assert.ok(actionItem.actions.unlike);
+  assert.strictEqual(actionItem.actions.like, undefined);
+  assert.ok(apiCall(actionContext, "/web/likes/3330000000000000001_12345/like/"));
+
+  vm.runInContext(`performAction("unlike", ${JSON.stringify(actionItem.actions.unlike)}, results[0])`, actionContext);
+  await settle();
+  assert.ifError(actionContext.actionError);
+  assert.ok(actionItem.actions.like);
+
+  vm.runInContext(`performAction("save", ${JSON.stringify(actionItem.actions.save)}, results[0])`, actionContext);
+  await settle();
+  assert.ifError(actionContext.actionError);
+  assert.ok(actionItem.actions.unsave);
+  assert.ok(apiCall(actionContext, "/web/save/3330000000000000001_12345/save/"));
+
+  vm.runInContext(`performAction("unsave", ${JSON.stringify(actionItem.actions.unsave)}, results[0])`, actionContext);
+  await settle();
+  assert.ifError(actionContext.actionError);
+  assert.ok(actionItem.actions.save);
+
+  vm.runInContext(`performAction("repost", ${JSON.stringify(actionItem.actions.repost)}, results[0])`, actionContext);
+  await settle();
+  assert.ifError(actionContext.actionError);
+  assert.ok(actionItem.actions.unrepost);
+  assert.ok(apiCall(actionContext, "/web/media/3330000000000000001_12345/repost/"));
+
+  vm.runInContext(`performAction("unrepost", ${JSON.stringify(actionItem.actions.unrepost)}, results[0])`, actionContext);
+  await settle();
+  assert.ifError(actionContext.actionError);
+  assert.ok(actionItem.actions.repost);
 
   const pagedInitial = makeContext({
     instagram_sources: "openai",

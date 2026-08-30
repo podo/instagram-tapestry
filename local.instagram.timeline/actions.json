@@ -1,6 +1,46 @@
 {
-  "items": [
-    {
+	"items": [
+		{
+			"id": "like",
+			"name": "Like",
+			"icon": "heart"
+		},
+		{
+			"id": "unlike",
+			"name": "Remove Like",
+			"icon": "heart.fill"
+		},
+		{
+			"id": "favorite",
+			"name": "Add Favorite",
+			"icon": "star"
+		},
+		{
+			"id": "unfavorite",
+			"name": "Remove Favorite",
+			"icon": "star.fill"
+		},
+		{
+			"id": "save",
+			"name": "Save",
+			"icon": "tapestry.bookmark"
+		},
+		{
+			"id": "unsave",
+			"name": "Remove Save",
+			"icon": "tapestry.bookmark.fill"
+		},
+		{
+			"id": "repost",
+			"name": "Repost",
+			"icon": "tapestry.boost"
+		},
+		{
+			"id": "unrepost",
+			"name": "Remove Repost",
+			"icon": "tapestry.boost.fill"
+		},
+		{
       "id": "comments",
       "name": "Comments",
       "icon": "bubble.left.and.bubble.right",
