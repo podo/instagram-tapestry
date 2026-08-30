@@ -24,16 +24,16 @@
     .who { min-width: 0; flex: 1; }
     .name { font-weight: 750; line-height: 1.2; }
     .userline { color: #666875; font-size: 13px; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .media-grid { display: grid; grid-template-columns: 1.35fr .75fr; gap: 2px; background: #111; min-height: 410px; }
-    .media { position: relative; min-height: 410px; overflow: hidden; background: #111; }
-    .media.side { min-height: 410px; }
-    .media img { width: 100%; height: 100%; object-fit: contain; display: block; }
+    .post-body { background: #fff; }
+    .post-body p { margin: 0; }
+    .post-body .instagram-visual { position: relative; min-height: 360px; background: #111; display: flex; align-items: center; justify-content: center; border-top: 2px solid #111; }
+    .post-body .instagram-visual:first-child { border-top: 0; }
+    .post-body .instagram-visual img, .post-body .instagram-visual video { width: 100%; max-height: 560px; object-fit: contain; display: block; background: #111; }
+    .post-body p:not(.instagram-visual) { padding: 14px 16px 0; font-size: 15px; line-height: 1.48; }
+    .post-body a { color: #0b63ce; text-decoration: none; font-weight: 620; }
     .video-badge, .count-badge { position: absolute; right: 12px; top: 12px; border-radius: 999px; background: rgba(0,0,0,.68); color: #fff; padding: 6px 9px; font-size: 12px; font-weight: 700; }
     .count-badge { left: 12px; right: auto; }
     .content { padding: 14px 16px 16px; }
-    .caption { font-size: 15px; line-height: 1.48; }
-    .caption p { margin: 0 0 10px; }
-    .caption a { color: #0b63ce; text-decoration: none; font-weight: 620; }
     .annotations { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 2px; }
     .pill { border: 1px solid #dedee4; border-radius: 999px; padding: 5px 9px; color: #595b66; font-size: 12px; background: #fafafa; }
     .actions { display: flex; align-items: center; justify-content: space-between; margin-top: 13px; padding-top: 12px; border-top: 1px solid #ececf0; }
@@ -48,8 +48,7 @@
     .comment .meta { color: #666875; font-size: 12px; margin-top: 5px; }
     @media (max-width: 640px) {
       .shell { padding: 16px 10px 28px; }
-      .media-grid { grid-template-columns: 1fr; min-height: auto; }
-      .media, .media.side { min-height: 310px; }
+      .post-body .instagram-visual { min-height: 310px; }
     }
   </style>
 </head>
@@ -64,12 +63,8 @@
         <div class="userline">@openai · Instagram</div>
       </div>
     </header>
-    <div class="media-grid" data-testid="media-grid">
-      <figure class="media"><img src="data:image/svg+xml,%0A%20%20%20%20%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%221200%22%20height%3D%22900%22%20viewBox%3D%220%200%201200%20900%22%3E%0A%20%20%20%20%20%20%3Cdefs%3E%0A%20%20%20%20%20%20%20%20%3ClinearGradient%20id%3D%22g%22%20x1%3D%220%22%20x2%3D%221%22%20y1%3D%220%22%20y2%3D%221%22%3E%0A%20%20%20%20%20%20%20%20%20%20%3Cstop%20offset%3D%220%22%20stop-color%3D%22%23e1306c%22%2F%3E%0A%20%20%20%20%20%20%20%20%20%20%3Cstop%20offset%3D%221%22%20stop-color%3D%22%23f77737%22%2F%3E%0A%20%20%20%20%20%20%20%20%3C%2FlinearGradient%3E%0A%20%20%20%20%20%20%3C%2Fdefs%3E%0A%20%20%20%20%20%20%3Crect%20width%3D%221200%22%20height%3D%22900%22%20fill%3D%22url(%23g)%22%2F%3E%0A%20%20%20%20%20%20%3Ccircle%20cx%3D%22260%22%20cy%3D%22230%22%20r%3D%22150%22%20fill%3D%22rgba(255%2C255%2C255%2C.23)%22%2F%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%22520%22%20y%3D%22220%22%20width%3D%22430%22%20height%3D%22430%22%20rx%3D%2254%22%20fill%3D%22rgba(255%2C255%2C255%2C.16)%22%2F%3E%0A%20%20%20%20%20%20%3Ctext%20x%3D%2274%22%20y%3D%22790%22%20font-family%3D%22Arial%2C%20sans-serif%22%20font-size%3D%2282%22%20font-weight%3D%22800%22%20fill%3D%22white%22%3EResearch%20preview%3C%2Ftext%3E%0A%20%20%20%20%3C%2Fsvg%3E%0A%20%20" alt="Research preview alt text"><span class="count-badge">1/2</span></figure>
-      <figure class="media side"><img src="data:image/svg+xml,%0A%20%20%20%20%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%221200%22%20height%3D%22900%22%20viewBox%3D%220%200%201200%20900%22%3E%0A%20%20%20%20%20%20%3Cdefs%3E%0A%20%20%20%20%20%20%20%20%3ClinearGradient%20id%3D%22g%22%20x1%3D%220%22%20x2%3D%221%22%20y1%3D%220%22%20y2%3D%221%22%3E%0A%20%20%20%20%20%20%20%20%20%20%3Cstop%20offset%3D%220%22%20stop-color%3D%22%23405de6%22%2F%3E%0A%20%20%20%20%20%20%20%20%20%20%3Cstop%20offset%3D%221%22%20stop-color%3D%22%23833ab4%22%2F%3E%0A%20%20%20%20%20%20%20%20%3C%2FlinearGradient%3E%0A%20%20%20%20%20%20%3C%2Fdefs%3E%0A%20%20%20%20%20%20%3Crect%20width%3D%221200%22%20height%3D%22900%22%20fill%3D%22url(%23g)%22%2F%3E%0A%20%20%20%20%20%20%3Ccircle%20cx%3D%22260%22%20cy%3D%22230%22%20r%3D%22150%22%20fill%3D%22rgba(255%2C255%2C255%2C.23)%22%2F%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%22520%22%20y%3D%22220%22%20width%3D%22430%22%20height%3D%22430%22%20rx%3D%2254%22%20fill%3D%22rgba(255%2C255%2C255%2C.16)%22%2F%3E%0A%20%20%20%20%20%20%3Ctext%20x%3D%2274%22%20y%3D%22790%22%20font-family%3D%22Arial%2C%20sans-serif%22%20font-size%3D%2282%22%20font-weight%3D%22800%22%20fill%3D%22white%22%3EReel%20thumbnail%3C%2Ftext%3E%0A%20%20%20%20%3C%2Fsvg%3E%0A%20%20" alt="Reel video alt text"><span class="video-badge">Reel</span></figure>
-    </div>
+    <div class="post-body" data-testid="post-body"><p class="instagram-visual"><img src="data:image/svg+xml,%0A%20%20%20%20%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%221200%22%20height%3D%22900%22%20viewBox%3D%220%200%201200%20900%22%3E%0A%20%20%20%20%20%20%3Cdefs%3E%0A%20%20%20%20%20%20%20%20%3ClinearGradient%20id%3D%22g%22%20x1%3D%220%22%20x2%3D%221%22%20y1%3D%220%22%20y2%3D%221%22%3E%0A%20%20%20%20%20%20%20%20%20%20%3Cstop%20offset%3D%220%22%20stop-color%3D%22%23e1306c%22%2F%3E%0A%20%20%20%20%20%20%20%20%20%20%3Cstop%20offset%3D%221%22%20stop-color%3D%22%23f77737%22%2F%3E%0A%20%20%20%20%20%20%20%20%3C%2FlinearGradient%3E%0A%20%20%20%20%20%20%3C%2Fdefs%3E%0A%20%20%20%20%20%20%3Crect%20width%3D%221200%22%20height%3D%22900%22%20fill%3D%22url(%23g)%22%2F%3E%0A%20%20%20%20%20%20%3Ccircle%20cx%3D%22260%22%20cy%3D%22230%22%20r%3D%22150%22%20fill%3D%22rgba(255%2C255%2C255%2C.23)%22%2F%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%22520%22%20y%3D%22220%22%20width%3D%22430%22%20height%3D%22430%22%20rx%3D%2254%22%20fill%3D%22rgba(255%2C255%2C255%2C.16)%22%2F%3E%0A%20%20%20%20%20%20%3Ctext%20x%3D%2274%22%20y%3D%22790%22%20font-family%3D%22Arial%2C%20sans-serif%22%20font-size%3D%2282%22%20font-weight%3D%22800%22%20fill%3D%22white%22%3EResearch%20preview%3C%2Ftext%3E%0A%20%20%20%20%3C%2Fsvg%3E%0A%20%20" alt="Research preview alt text" width="1200" height="900" /></p><p class="instagram-visual"><video controls preload="metadata" src="https://cdn.example.test/reel.mp4" poster="data:image/svg+xml,%0A%20%20%20%20%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%221200%22%20height%3D%22900%22%20viewBox%3D%220%200%201200%20900%22%3E%0A%20%20%20%20%20%20%3Cdefs%3E%0A%20%20%20%20%20%20%20%20%3ClinearGradient%20id%3D%22g%22%20x1%3D%220%22%20x2%3D%221%22%20y1%3D%220%22%20y2%3D%221%22%3E%0A%20%20%20%20%20%20%20%20%20%20%3Cstop%20offset%3D%220%22%20stop-color%3D%22%23405de6%22%2F%3E%0A%20%20%20%20%20%20%20%20%20%20%3Cstop%20offset%3D%221%22%20stop-color%3D%22%23833ab4%22%2F%3E%0A%20%20%20%20%20%20%20%20%3C%2FlinearGradient%3E%0A%20%20%20%20%20%20%3C%2Fdefs%3E%0A%20%20%20%20%20%20%3Crect%20width%3D%221200%22%20height%3D%22900%22%20fill%3D%22url(%23g)%22%2F%3E%0A%20%20%20%20%20%20%3Ccircle%20cx%3D%22260%22%20cy%3D%22230%22%20r%3D%22150%22%20fill%3D%22rgba(255%2C255%2C255%2C.23)%22%2F%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%22520%22%20y%3D%22220%22%20width%3D%22430%22%20height%3D%22430%22%20rx%3D%2254%22%20fill%3D%22rgba(255%2C255%2C255%2C.16)%22%2F%3E%0A%20%20%20%20%20%20%3Ctext%20x%3D%2274%22%20y%3D%22790%22%20font-family%3D%22Arial%2C%20sans-serif%22%20font-size%3D%2282%22%20font-weight%3D%22800%22%20fill%3D%22white%22%3EReel%20thumbnail%3C%2Ftext%3E%0A%20%20%20%20%3C%2Fsvg%3E%0A%20%20" width="1080" height="1920">Reel video alt text</video></p><p>Launching &lt;AI&gt; research with <a href="https://www.instagram.com/sama/">@sama</a> and <a href="https://www.instagram.com/explore/tags/machinelearning/">#machinelearning</a><br><a href="https://example.com/story">https://example.com/story</a></p></div>
     <div class="content">
-      <div class="caption" data-testid="caption"><p>Launching &lt;AI&gt; research with <a href="https://www.instagram.com/sama/">@sama</a> and <a href="https://www.instagram.com/explore/tags/machinelearning/">#machinelearning</a><br><a href="https://example.com/story">https://example.com/story</a></p></div>
       <div class="annotations">
         <span class="pill">Carousel</span><span class="pill">Location: San Francisco, California</span><span class="pill">12,890 likes - 342 comments - 55,000 views - 78,000 plays</span>
       </div>

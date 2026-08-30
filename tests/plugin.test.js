@@ -312,9 +312,10 @@ async function run() {
   const apps = readConnectorJson("apps.json");
 
   assert.strictEqual(pluginConfig.id, "local.instagram.timeline");
-  assert.strictEqual(pluginConfig.provides_attachments, true);
+  assert.strictEqual(pluginConfig.icon, "https://static.cdninstagram.com/rsrc.php/yw/r/icwX0xAk0pz.webp");
+  assert.strictEqual(pluginConfig.provides_attachments, false);
   assert.strictEqual(pluginConfig.minimum_app_version, "1.4");
-  assert.strictEqual(pluginConfig.version, 1);
+  assert.strictEqual(pluginConfig.version, 2);
   assert.ok(uiConfig.inputs.some(input => input.name === "cookie_header"));
   assert.ok(uiConfig.inputs.some(input => input.name === "instagram_sources"));
   assert.ok(uiConfig.inputs.some(input => input.name === "ig_app_id"));
@@ -355,6 +356,10 @@ async function run() {
   assert.ok(item, "load should return an OpenAI post");
   assert.strictEqual(item.uri, "https://www.instagram.com/p/COPENAI123/");
   assert.strictEqual(item.date.toISOString(), "2026-08-28T08:00:00.000Z");
+  assert.strictEqual(item.contentWarning, undefined);
+  assert.match(item.body, /^<p class="instagram-visual"><img /);
+  assert.match(item.body, /<video controls preload="metadata" src="https:\/\/cdn\.example\.test\/reel\.mp4"/);
+  assert.ok(item.body.indexOf("instagram-visual") < item.body.indexOf("Launching &lt;AI&gt; research"));
   assert.match(item.body, /Launching &lt;AI&gt; research/);
   assert.doesNotMatch(item.body, /<AI>/);
   assert.match(item.body, /href="https:\/\/www\.instagram\.com\/sama\/">@sama/);
@@ -364,13 +369,7 @@ async function run() {
   assert.strictEqual(item.author.username, "@openai");
   assert.strictEqual(item.author.uri, "https://www.instagram.com/openai/");
   assert.ok(item.author.avatar.startsWith("data:image/svg+xml"));
-  assert.strictEqual(item.attachments.length, 2);
-  assert.strictEqual(item.attachments[0].kind, "media");
-  assert.strictEqual(item.attachments[0].mimeType, "image/svg+xml");
-  assert.strictEqual(item.attachments[0].aspectSize.width, 1200);
-  assert.strictEqual(item.attachments[0].text, "Research preview alt text");
-  assert.strictEqual(item.attachments[1].mimeType, "video/mp4");
-  assert.ok(item.attachments[1].thumbnail.startsWith("data:image/svg+xml"));
+  assert.strictEqual(item.attachments, undefined);
   assert.match(item.annotations[0].text, /Carousel/);
   assert.match(item.annotations[1].text, /Location: San Francisco/);
   assert.match(item.annotations[2].text, /12,890 likes/);
@@ -404,6 +403,24 @@ async function run() {
   assert.strictEqual(noMedia.results[0].attachments.length, 1);
   assert.strictEqual(noMedia.results[0].attachments[0].kind, "link");
   assert.strictEqual(noMedia.results[0].attachments[0].siteName, "Instagram");
+  assert.doesNotMatch(noMedia.results[0].body, /instagram-visual/);
+
+  const sensitive = makeContext({
+    instagram_sources: "openai",
+    profileBodies: {
+      openai: profileFeedBody("openai", [
+        mediaItem("openai", {
+          is_sensitive_media: true,
+          pk: "3330000000000000401",
+          code: "SENSITIVE1"
+        })
+      ], null)
+    }
+  });
+  vm.runInContext("load()", sensitive);
+  await settle();
+  assert.ifError(sensitive.error);
+  assert.strictEqual(sensitive.results[0].contentWarning, "Sensitive content");
 
   const hashtag = makeContext({ source_mode: "Hashtag", instagram_sources: "#ai" });
   vm.runInContext("load()", hashtag);

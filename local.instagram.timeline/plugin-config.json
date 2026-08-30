@@ -3,12 +3,12 @@
   "display_name": "Instagram",
   "service_name": "Instagram",
   "default_color": "coral",
-  "icon": "https://www.instagram.com/favicon.ico",
+  "icon": "https://static.cdninstagram.com/rsrc.php/yw/r/icwX0xAk0pz.webp",
   "item_style": "post",
   "site": "https://www.instagram.com",
   "needs_verification": true,
   "verify_variables": true,
-  "provides_attachments": true,
+  "provides_attachments": false,
   "minimum_app_version": "1.4",
-  "version": 1
+  "version": 2
 }

@@ -201,16 +201,16 @@ function renderPage(item, comments) {
     .who { min-width: 0; flex: 1; }
     .name { font-weight: 750; line-height: 1.2; }
     .userline { color: #666875; font-size: 13px; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .media-grid { display: grid; grid-template-columns: 1.35fr .75fr; gap: 2px; background: #111; min-height: 410px; }
-    .media { position: relative; min-height: 410px; overflow: hidden; background: #111; }
-    .media.side { min-height: 410px; }
-    .media img { width: 100%; height: 100%; object-fit: contain; display: block; }
+    .post-body { background: #fff; }
+    .post-body p { margin: 0; }
+    .post-body .instagram-visual { position: relative; min-height: 360px; background: #111; display: flex; align-items: center; justify-content: center; border-top: 2px solid #111; }
+    .post-body .instagram-visual:first-child { border-top: 0; }
+    .post-body .instagram-visual img, .post-body .instagram-visual video { width: 100%; max-height: 560px; object-fit: contain; display: block; background: #111; }
+    .post-body p:not(.instagram-visual) { padding: 14px 16px 0; font-size: 15px; line-height: 1.48; }
+    .post-body a { color: #0b63ce; text-decoration: none; font-weight: 620; }
     .video-badge, .count-badge { position: absolute; right: 12px; top: 12px; border-radius: 999px; background: rgba(0,0,0,.68); color: #fff; padding: 6px 9px; font-size: 12px; font-weight: 700; }
     .count-badge { left: 12px; right: auto; }
     .content { padding: 14px 16px 16px; }
-    .caption { font-size: 15px; line-height: 1.48; }
-    .caption p { margin: 0 0 10px; }
-    .caption a { color: #0b63ce; text-decoration: none; font-weight: 620; }
     .annotations { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 2px; }
     .pill { border: 1px solid #dedee4; border-radius: 999px; padding: 5px 9px; color: #595b66; font-size: 12px; background: #fafafa; }
     .actions { display: flex; align-items: center; justify-content: space-between; margin-top: 13px; padding-top: 12px; border-top: 1px solid #ececf0; }
@@ -225,8 +225,7 @@ function renderPage(item, comments) {
     .comment .meta { color: #666875; font-size: 12px; margin-top: 5px; }
     @media (max-width: 640px) {
       .shell { padding: 16px 10px 28px; }
-      .media-grid { grid-template-columns: 1fr; min-height: auto; }
-      .media, .media.side { min-height: 310px; }
+      .post-body .instagram-visual { min-height: 310px; }
     }
   </style>
 </head>
@@ -248,7 +247,6 @@ function renderPage(item, comments) {
 }
 
 function renderPost(item) {
-  const media = item.attachments || [];
   const annotations = item.annotations || [];
   return `<article class="card" data-testid="post-card">
     <header class="head">
@@ -258,12 +256,8 @@ function renderPost(item) {
         <div class="userline">${escapeHtml(item.author.username)} · Instagram</div>
       </div>
     </header>
-    <div class="media-grid" data-testid="media-grid">
-      <figure class="media">${mediaImage(media[0])}<span class="count-badge">1/${media.length}</span></figure>
-      <figure class="media side">${mediaImage(media[1] || media[0])}<span class="video-badge">Reel</span></figure>
-    </div>
+    <div class="post-body" data-testid="post-body">${item.body || ""}</div>
     <div class="content">
-      <div class="caption" data-testid="caption">${item.body || ""}</div>
       <div class="annotations">
         ${annotations.map(annotation => `<span class="pill">${escapeHtml(annotation.text)}</span>`).join("")}
       </div>
@@ -273,12 +267,6 @@ function renderPost(item) {
       </div>
     </div>
   </article>`;
-}
-
-function mediaImage(attachment) {
-  if (!attachment) return "";
-  const src = attachment.thumbnail || attachment.url;
-  return `<img src="${attr(src)}" alt="${attr(attachment.text || "")}">`;
 }
 
 function renderComment(comment) {
@@ -326,6 +314,7 @@ assert.ifError(context.error);
 assert.equal(context.results.length, 1);
 
 const item = context.results[0];
+assert.equal(item.contentWarning, undefined);
 vm.runInContext(`performAction("comments", ${JSON.stringify(item.actions.comments)}, results[0])`, context);
 await settle();
 assert.ifError(context.actionError);
@@ -346,16 +335,20 @@ try {
 
   assert.equal(await page.locator('[data-testid="post-card"]').count(), 1);
   assert.match(await page.locator('[data-testid="author"]').innerText(), /OpenAI/);
-  const caption = await page.locator('[data-testid="caption"]').innerText();
-  assert.match(caption, /Launching <AI> research/);
-  assert.match(caption, /@sama/);
-  assert.match(caption, /#machinelearning/);
+  const bodyText = await page.locator('[data-testid="post-body"]').innerText();
+  assert.match(bodyText, /Launching <AI> research/);
+  assert.match(bodyText, /@sama/);
+  assert.match(bodyText, /#machinelearning/);
   assert.match(await page.locator("body").innerText(), /12,890 likes/);
   assert.match(await page.locator("body").innerText(), /Location: San Francisco/);
 
-  const mediaBox = await page.locator('[data-testid="media-grid"]').boundingBox();
+  const mediaBox = await page.locator('[data-testid="post-body"] .instagram-visual').first().boundingBox();
   assert.ok(mediaBox && mediaBox.width > 300 && mediaBox.height > 300, "media grid should be visible");
-  assert.equal(await page.locator('[data-testid="media-grid"] img').count(), 2);
+  assert.equal(await page.locator('[data-testid="post-body"] img').count(), 1);
+  assert.equal(await page.locator('[data-testid="post-body"] video').count(), 1);
+  const firstVisualIndex = await page.locator('[data-testid="post-body"]').evaluate(element => element.innerHTML.indexOf("instagram-visual"));
+  const captionIndex = await page.locator('[data-testid="post-body"]').evaluate(element => element.innerHTML.indexOf("Launching"));
+  assert.ok(firstVisualIndex >= 0 && captionIndex > firstVisualIndex, "caption should render after visual media");
   await page.screenshot({ path: screenshotPath, fullPage: true });
 
   await page.click('[data-testid="comments-toggle"]');
@@ -370,7 +363,8 @@ try {
   await page.waitForSelector('[data-testid="post-card"]');
   const desktopBox = await page.locator('[data-testid="post-card"]').boundingBox();
   assert.ok(desktopBox && desktopBox.width > 680 && desktopBox.height > 650, "desktop card should be visible and fully laid out");
-  assert.equal(await page.locator('[data-testid="media-grid"] img').count(), 2);
+  assert.equal(await page.locator('[data-testid="post-body"] img').count(), 1);
+  assert.equal(await page.locator('[data-testid="post-body"] video').count(), 1);
   await page.screenshot({ path: desktopScreenshotPath, fullPage: true });
 }
 finally {

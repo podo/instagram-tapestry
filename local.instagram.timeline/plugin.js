@@ -2,7 +2,7 @@
 
 const instagramBase = "https://www.instagram.com";
 const apiBase = `${instagramBase}/api/v1`;
-const instagramIconUrl = "https://www.instagram.com/favicon.ico";
+const instagramIconUrl = "https://static.cdninstagram.com/rsrc.php/yw/r/icwX0xAk0pz.webp";
 const defaultIgAppId = "936619743392459";
 const browserUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36";
 const syncStateKey = "syncStateV1";
@@ -510,7 +510,7 @@ function postToItem(post) {
   const annotations = postAnnotations(post);
   if (annotations.length > 0) item.annotations = annotations;
 
-  const attachments = postAttachments(post);
+  const attachments = postFallbackAttachments(post);
   if (attachments.length > 0) item.attachments = attachments;
 
   item.actions = postActions(post);
@@ -518,8 +518,29 @@ function postToItem(post) {
 }
 
 function postBody(post) {
+  const visual = showMedia() ? postVisualHtml(post) : "";
   const text = post && post.text ? post.text : "";
-  return paragraphsHtml(text);
+  return `${visual}${paragraphsHtml(text)}`;
+}
+
+function postVisualHtml(post) {
+  const media = post && Array.isArray(post.attachments) ? post.attachments : [];
+  return media.map(mediaInlineHtml).filter(Boolean).join("");
+}
+
+function mediaInlineHtml(media) {
+  if (!media || !isMediaUrl(media.url)) return "";
+
+  const alt = media.altText || mediaDescription(media, null);
+  const width = media.width > 0 ? ` width="${media.width}"` : "";
+  const height = media.height > 0 ? ` height="${media.height}"` : "";
+  const poster = media.thumbnail ? ` poster="${escapeAttribute(media.thumbnail)}"` : "";
+
+  if (/^video/i.test(media.mimeType || "")) {
+    return `<p class="instagram-visual"><video controls preload="metadata" src="${escapeAttribute(media.url)}"${poster}${width}${height}>${escapeHtml(alt)}</video></p>`;
+  }
+
+  return `<p class="instagram-visual"><img src="${escapeAttribute(media.url)}" alt="${escapeAttribute(alt)}"${width}${height} /></p>`;
 }
 
 function postIdentity(post) {
@@ -548,22 +569,9 @@ function postAnnotations(post) {
   return annotations;
 }
 
-function postAttachments(post) {
+function postFallbackAttachments(post) {
   const attachments = [];
-  if (showMedia() && typeof MediaAttachment !== "undefined") {
-    for (const media of post.attachments || []) {
-      const attachment = MediaAttachment.createWithUrl(media.url);
-      if (media.mimeType) attachment.mimeType = media.mimeType;
-      if (media.thumbnail) attachment.thumbnail = media.thumbnail;
-      if (media.width > 0 && media.height > 0) {
-        attachment.aspectSize = { width: media.width, height: media.height };
-      }
-      attachment.text = media.altText || mediaDescription(media, post);
-      attachments.push(attachment);
-    }
-  }
-
-  if (attachments.length === 0 && typeof LinkAttachment !== "undefined") {
+  if (!hasInlineMedia(post) && typeof LinkAttachment !== "undefined") {
     const link = LinkAttachment.createWithUrl(post.url);
     link.type = "website";
     link.title = post.authorUsername ? `Instagram post by @${post.authorUsername}` : "Instagram post";
@@ -574,8 +582,12 @@ function postAttachments(post) {
   return attachments;
 }
 
+function hasInlineMedia(post) {
+  return Boolean(showMedia() && post && Array.isArray(post.attachments) && post.attachments.some(media => isMediaUrl(media && media.url)));
+}
+
 function mediaDescription(media, post) {
-  const author = post.authorName || "Instagram";
+  const author = post && post.authorName ? post.authorName : "Instagram";
   return /^video/i.test(media.mimeType || "") ? `Video from ${author}` : `Image from ${author}`;
 }
 
@@ -870,11 +882,13 @@ function isReel(media) {
 
 function mediaContentWarning(media) {
   if (!media) return null;
-  if (media.is_sensitive_media || media.sensitive_media || media.is_visual_reply_commenter_notice_enabled) {
+  if (media.is_sensitive_media === true || media.sensitive_media === true || media.is_sensitive === true) {
     return "Sensitive content";
   }
-  const sharing = media.sharing_friction_info || {};
-  if (sharing.should_have_sharing_friction) return sharing.bloks_app_url ? "Sensitive content" : "Content warning";
+  const sensitivity = media.sensitivity_friction_info || media.sensitive_content_info || {};
+  if (sensitivity.should_have_sensitivity_friction === true || sensitivity.is_sensitive === true) {
+    return "Sensitive content";
+  }
   return null;
 }
 
@@ -1181,6 +1195,10 @@ function escapeHtml(value) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
+}
+
+function escapeAttribute(value) {
+  return escapeHtml(value).replace(/`/g, "&#96;");
 }
 
 function htmlDecode(value) {
