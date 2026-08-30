@@ -9,10 +9,11 @@ identity, annotations, and action model.
 1. Author identity: profile avatar, display name, `@username`, and Instagram
    profile link.
 2. Primary visual: the first photo, carousel slide, or video/Reel poster. The
-   visual must be at the start of `item.body` using Tapestry preview-safe
-   `<p>`/`<img>` HTML.
-3. Carousel context: additional slide thumbnails and a `Carousel - 1 / N`
-   label when applicable.
+   visual is supplied as the first native `MediaAttachment` so Loom and
+   Tapestry can render the actual media surface. A preview-safe HTML image is
+   retained only as a fallback when native attachments are unavailable.
+3. Carousel context: the ordered native media attachments; the media viewer
+   supplies the carousel context without synthetic body text.
 4. Caption: smaller text after the visual, with linked mentions, hashtags, and
    URLs.
 5. Metadata: media type, location, likes, comments, views, and plays as

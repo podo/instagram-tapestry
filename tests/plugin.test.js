@@ -319,7 +319,7 @@ async function run() {
   assert.strictEqual(pluginConfig.icon, "https://static.cdninstagram.com/rsrc.php/yw/r/icwX0xAk0pz.webp");
   assert.strictEqual(pluginConfig.provides_attachments, true);
   assert.strictEqual(pluginConfig.minimum_app_version, "1.4");
-  assert.strictEqual(pluginConfig.version, 6);
+  assert.strictEqual(pluginConfig.version, 7);
   assert.ok(uiConfig.inputs.some(input => input.name === "cookie_header"));
   assert.ok(uiConfig.inputs.some(input => input.name === "instagram_sources"));
   assert.ok(uiConfig.inputs.some(input => input.name === "ig_app_id"));
@@ -366,11 +366,19 @@ async function run() {
   assert.strictEqual(item.uri, "https://www.instagram.com/p/COPENAI123/");
   assert.strictEqual(item.date.toISOString(), "2026-08-28T08:00:00.000Z");
   assert.strictEqual(item.contentWarning, undefined);
-  assert.match(item.body, /^<p class="instagram-visual"><img /);
-  assert.match(item.body, /instagram-carousel-strip/);
-  assert.match(item.body, /Research preview/);
-  assert.match(item.body, /Reel video alt text/);
-  assert.ok(item.body.indexOf("instagram-visual") < item.body.indexOf("instagram-caption"));
+  assert.match(item.body, /^<p class="instagram-caption"><small>/);
+  assert.doesNotMatch(item.body, /instagram-visual/);
+  assert.doesNotMatch(item.body, /Carousel - 1 \/ 2/);
+  assert.equal(item.attachments.length, 2);
+  assert.equal(item.attachments[0].url.startsWith("data:image/svg+xml,"), true);
+  assert.equal(item.attachments[0].mimeType, "image/svg+xml");
+  assert.strictEqual(item.attachments[0].aspectSize.width, 1200);
+  assert.strictEqual(item.attachments[0].aspectSize.height, 900);
+  assert.equal(item.attachments[0].text, "Research preview alt text");
+  assert.equal(item.attachments[1].mimeType, "video/mp4");
+  assert.equal(item.attachments[1].thumbnail.startsWith("data:image/svg+xml,"), true);
+  assert.strictEqual(item.attachments[1].aspectSize.width, 1080);
+  assert.strictEqual(item.attachments[1].aspectSize.height, 1920);
   assert.match(item.body, /Launching &lt;AI&gt; research/);
   assert.doesNotMatch(item.body, /<AI>/);
   assert.match(item.body, /href="https:\/\/www\.instagram\.com\/sama\/">@sama/);
@@ -380,7 +388,6 @@ async function run() {
   assert.strictEqual(item.author.username, "@openai");
   assert.strictEqual(item.author.uri, "https://www.instagram.com/openai/");
   assert.ok(item.author.avatar.startsWith("data:image/svg+xml"));
-  assert.strictEqual(item.attachments, undefined);
   assert.match(item.annotations[0].text, /Carousel/);
   assert.match(item.annotations[1].text, /Location: San Francisco/);
   assert.match(item.annotations[2].text, /12,890 likes/);
@@ -522,6 +529,25 @@ async function run() {
   assert.strictEqual(noMedia.results[0].attachments[0].kind, "link");
   assert.strictEqual(noMedia.results[0].attachments[0].siteName, "Instagram");
   assert.doesNotMatch(noMedia.results[0].body, /instagram-visual/);
+
+  const videoWithoutSource = makeContext({
+    instagram_sources: "openai",
+    profileBodies: {
+      openai: profileFeedBody("openai", [mediaItem("openai", {
+        pk: "3330000000000000501",
+        code: "VIDEOIMAGE",
+        media_type: 2,
+        carousel_media: [],
+        image_versions2: photoEntry("Video fallback").image_versions2,
+        video_versions: []
+      })], null)
+    }
+  });
+  vm.runInContext("load()", videoWithoutSource);
+  await settle();
+  assert.ifError(videoWithoutSource.error);
+  assert.strictEqual(videoWithoutSource.results[0].attachments[0].mimeType, "image/svg+xml");
+  assert.strictEqual(videoWithoutSource.results[0].attachments[0].thumbnail, undefined);
 
   const sensitive = makeContext({
     instagram_sources: "openai",

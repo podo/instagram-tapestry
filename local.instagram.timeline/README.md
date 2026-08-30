@@ -35,8 +35,8 @@ or include them in screenshots.
 - Hashtag feeds from the web-session tag responses when Instagram returns them
 - For You, Following, and Favorites feed attempts using the logged-in session
 - Native post-style Tapestry items with author identity and avatar
-- Media-first post bodies so captions follow photos, videos, and carousel media
-- Photos, videos, Reels, and carousel media rendered inline before caption text
+- Native photo, video, Reel, and carousel attachments in source order
+- Captions kept as a smaller text block after the media surface in Tapestry
 - Smaller caption rendering with linked `@mentions`, `#hashtags`, and URLs
 - Optional metrics for likes, comments, views, and plays
 - Optional location annotations
@@ -62,11 +62,12 @@ profile lookup is often more brittle. The connector still includes fallbacks for
 other response shapes, but private Instagram web endpoints are not stable
 contracts.
 
-Tapestry displays native media attachments after body text and shows only the
-first four timeline thumbnails. To keep Instagram visual-first, this connector
-renders photos, videos, Reels, and carousel entries with preview-safe inline
-HTML before the smaller caption text. Normal posts are not marked with a
-content warning unless Instagram returns an explicit sensitive media flag.
+Tapestry displays native media attachments in the item preview and detail view,
+and shows only the first four timeline thumbnails. This connector supplies
+photos, videos, Reels, and carousel entries as native attachments in their
+Instagram order. It uses preview-safe inline HTML only as a fallback for
+older or incomplete runtimes. Normal posts are not marked with a content
+warning unless Instagram returns an explicit sensitive media flag.
 
 ## Development and Tests
 

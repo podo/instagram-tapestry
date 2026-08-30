@@ -498,14 +498,15 @@ function mediaAttachmentFromPrivate(entry, authorName) {
   const isVideo = Number(entry.media_type) === 2 || Array.isArray(entry.video_versions);
   const image = bestImageUrl(entry);
   const video = bestVideoUrl(entry);
-  const url = isVideo ? (video || image) : image;
+  const hasPlayableVideo = isVideo && Boolean(video);
+  const url = hasPlayableVideo ? video : image;
   if (!isMediaUrl(url)) return null;
 
   const size = mediaSize(entry, isVideo);
   return {
     url,
-    thumbnail: isVideo ? image : null,
-    mimeType: isVideo && video ? "video/mp4" : mediaMimeType(url, isVideo),
+    thumbnail: hasPlayableVideo ? image : null,
+    mimeType: mediaMimeType(url, hasPlayableVideo),
     width: size.width,
     height: size.height,
     altText: stringValue(entry.accessibility_caption || entry.alt_text) || (isVideo ? `Video from ${authorName}` : `Image from ${authorName}`)
@@ -524,15 +525,16 @@ function mediaAttachmentFromGraphql(node, authorName) {
   const isVideo = Boolean(node.is_video || node.video_url);
   const image = firstUrl(node.display_url || node.thumbnail_src || node.thumbnail_resources && largestThumbnail(node.thumbnail_resources));
   const video = firstUrl(node.video_url);
-  const url = isVideo ? (video || image) : image;
+  const hasPlayableVideo = isVideo && Boolean(video);
+  const url = hasPlayableVideo ? video : image;
   if (!isMediaUrl(url)) return null;
 
   const width = finiteNumber(node.dimensions && node.dimensions.width);
   const height = finiteNumber(node.dimensions && node.dimensions.height);
   return {
     url,
-    thumbnail: isVideo ? image : null,
-    mimeType: isVideo && video ? "video/mp4" : mediaMimeType(url, isVideo),
+    thumbnail: hasPlayableVideo ? image : null,
+    mimeType: mediaMimeType(url, hasPlayableVideo),
     width,
     height,
     altText: stringValue(node.accessibility_caption || node.alt_text) || (isVideo ? `Video from ${authorName}` : `Image from ${authorName}`)
@@ -545,7 +547,8 @@ function postsToItems(posts) {
 
 function postToItem(post) {
   const item = Item.createWithUriDate(post.url, post.date || new Date());
-  const body = postBody(post);
+  const mediaAttachments = postMediaAttachments(post);
+  const body = postBody(post, mediaAttachments.length === 0 && postMediaEntries(post).length > 0);
   if (body) item.body = body;
   if (post.contentWarning) item.contentWarning = post.contentWarning;
   item.author = postIdentity(post);
@@ -553,16 +556,16 @@ function postToItem(post) {
   const annotations = postAnnotations(post);
   if (annotations.length > 0) item.annotations = annotations;
 
-  const attachments = postFallbackAttachments(post);
+  const attachments = mediaAttachments.length > 0 ? mediaAttachments : postFallbackAttachments(post);
   if (attachments.length > 0) item.attachments = attachments;
 
   item.actions = postActions(post);
   return item;
 }
 
-function postBody(post) {
+function postBody(post, useInlineMedia = false) {
   const parts = [];
-  const visual = postVisualHtml(post);
+  const visual = useInlineMedia ? postVisualHtml(post) : "";
   const caption = captionHtml(post && post.text ? post.text : "");
   if (visual) parts.push(visual);
   if (caption) parts.push(caption);
@@ -597,7 +600,7 @@ function postAnnotations(post) {
 
 function postFallbackAttachments(post) {
   const attachments = [];
-  if ((!showMedia() || postMediaEntries(post).length === 0) && typeof LinkAttachment !== "undefined") {
+  if ((!showMedia() || postMediaEntries(post).length === 0 || typeof MediaAttachment === "undefined") && typeof LinkAttachment !== "undefined") {
     const link = LinkAttachment.createWithUrl(post.url);
     link.type = "website";
     link.title = post.authorUsername ? `Instagram post by @${post.authorUsername}` : "Instagram post";
@@ -606,6 +609,22 @@ function postFallbackAttachments(post) {
   }
 
   return attachments;
+}
+
+function postMediaAttachments(post) {
+  const media = postMediaEntries(post);
+  if (media.length === 0 || typeof MediaAttachment === "undefined") return [];
+
+  return media.map(entry => {
+    const attachment = MediaAttachment.createWithUrl(entry.url);
+    if (entry.thumbnail) attachment.thumbnail = entry.thumbnail;
+    if (entry.mimeType) attachment.mimeType = entry.mimeType;
+    if (entry.altText) attachment.text = entry.altText;
+    if (entry.width > 0 && entry.height > 0) {
+      attachment.aspectSize = { width: entry.width, height: entry.height };
+    }
+    return attachment;
+  });
 }
 
 function postVisualHtml(post) {
@@ -622,7 +641,6 @@ function postVisualHtml(post) {
     if (thumbnails) {
       html += `<p class="instagram-carousel-strip">${thumbnails}</p>`;
     }
-    html += `<p class="instagram-media-meta"><small>Carousel - 1 / ${media.length}</small></p>`;
   }
   return html;
 }

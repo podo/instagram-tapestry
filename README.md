@@ -12,9 +12,9 @@ Download or build `InstagramTapestry.tapestry`, install it in Tapestry, and
 configure a feed with profile usernames, hashtags, For You, Following, or
 Favorites. It renders
 photos, carousels, videos, Reels, captions, author avatars, locations, counts,
-and Instagram-style Like, Favorite, Save, Repost, and Comments actions. Post
-bodies use preview-safe media-first HTML so the caption follows the visual,
-closer to Instagram's own post layout.
+and Instagram-style Like, Favorite, Save, Repost, and Comments actions. Native
+media attachments keep the visual surface available to Loom and Tapestry, with
+the caption represented as a smaller body block after the media.
 
 For easier setup, run `node scripts/instagram-cookie-helper.mjs` from the
 repository root. It opens a temporary browser login session and copies the
