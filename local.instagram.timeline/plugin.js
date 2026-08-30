@@ -70,9 +70,6 @@ async function verifyAsync() {
     result.displayName = "Instagram - Home";
   }
 
-  const firstAvatar = page && page.items && page.items.length > 0 ? page.items[0].authorAvatar : null;
-  if (firstAvatar && result.icon === instagramIconUrl) result.icon = firstAvatar;
-
   const accountIdentity = await currentAccountIdentity(credentials);
   if (accountIdentity) result.accountIdentity = accountIdentity;
   return result;
@@ -519,7 +516,8 @@ function postToItem(post) {
   const annotations = postAnnotations(post);
   if (annotations.length > 0) item.annotations = annotations;
 
-  const attachments = postFallbackAttachments(post);
+  let attachments = postMediaAttachments(post);
+  if (attachments.length === 0) attachments = postFallbackAttachments(post);
   if (attachments.length > 0) item.attachments = attachments;
 
   item.actions = postActions(post);
@@ -527,29 +525,8 @@ function postToItem(post) {
 }
 
 function postBody(post) {
-  const visual = showMedia() ? postVisualHtml(post) : "";
   const text = post && post.text ? post.text : "";
-  return `${visual}${captionHtml(text)}`;
-}
-
-function postVisualHtml(post) {
-  const media = post && Array.isArray(post.attachments) ? post.attachments : [];
-  return media.map(mediaInlineHtml).filter(Boolean).join("");
-}
-
-function mediaInlineHtml(media) {
-  if (!media || !isMediaUrl(media.url)) return "";
-
-  const alt = media.altText || mediaDescription(media, null);
-  const width = media.width > 0 ? ` width="${media.width}"` : "";
-  const height = media.height > 0 ? ` height="${media.height}"` : "";
-  const poster = media.thumbnail ? ` poster="${escapeAttribute(media.thumbnail)}"` : "";
-
-  if (/^video/i.test(media.mimeType || "")) {
-    return `<p class="instagram-visual"><video controls preload="metadata" style="display:block;max-width:100%;height:auto;" src="${escapeAttribute(media.url)}"${poster}${width}${height}>${escapeHtml(alt)}</video></p>`;
-  }
-
-  return `<p class="instagram-visual"><img style="display:block;max-width:100%;height:auto;" src="${escapeAttribute(media.url)}" alt="${escapeAttribute(alt)}"${width}${height} /></p>`;
+  return captionHtml(text);
 }
 
 function maximumPagesForLoad(highWaterId) {
@@ -584,7 +561,7 @@ function postAnnotations(post) {
 
 function postFallbackAttachments(post) {
   const attachments = [];
-  if (!hasInlineMedia(post) && typeof LinkAttachment !== "undefined") {
+  if (typeof LinkAttachment !== "undefined") {
     const link = LinkAttachment.createWithUrl(post.url);
     link.type = "website";
     link.title = post.authorUsername ? `Instagram post by @${post.authorUsername}` : "Instagram post";
@@ -595,8 +572,25 @@ function postFallbackAttachments(post) {
   return attachments;
 }
 
-function hasInlineMedia(post) {
-  return Boolean(showMedia() && post && Array.isArray(post.attachments) && post.attachments.some(media => isMediaUrl(media && media.url)));
+function postMediaAttachments(post) {
+  const attachments = [];
+  if (!showMedia() || typeof MediaAttachment === "undefined" || !post || !Array.isArray(post.attachments)) {
+    return attachments;
+  }
+
+  for (const media of post.attachments) {
+    if (!media || !isMediaUrl(media.url)) continue;
+    const attachment = MediaAttachment.createWithUrl(media.url);
+    if (media.mimeType) attachment.mimeType = media.mimeType;
+    if (media.thumbnail) attachment.thumbnail = media.thumbnail;
+    if (media.width > 0 && media.height > 0) {
+      attachment.aspectSize = { width: media.width, height: media.height };
+    }
+    attachment.text = media.altText || mediaDescription(media, post);
+    attachments.push(attachment);
+  }
+
+  return attachments;
 }
 
 function mediaDescription(media, post) {
