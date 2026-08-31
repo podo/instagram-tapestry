@@ -319,7 +319,7 @@ async function run() {
   assert.strictEqual(pluginConfig.icon, "https://static.cdninstagram.com/rsrc.php/yw/r/icwX0xAk0pz.webp");
   assert.strictEqual(pluginConfig.provides_attachments, true);
   assert.strictEqual(pluginConfig.minimum_app_version, "1.4");
-  assert.strictEqual(pluginConfig.version, 7);
+  assert.strictEqual(pluginConfig.version, 8);
   assert.ok(uiConfig.inputs.some(input => input.name === "cookie_header"));
   assert.ok(uiConfig.inputs.some(input => input.name === "instagram_sources"));
   assert.ok(uiConfig.inputs.some(input => input.name === "ig_app_id"));
@@ -342,7 +342,7 @@ async function run() {
   vm.runInContext("verify()", context);
   await settle();
   assert.ifError(context.error);
-  assert.strictEqual(context.verification.displayName, "Instagram - @openai, @natgeo");
+  assert.strictEqual(context.verification.displayName, "Instagram · @openai, @natgeo");
   assert.strictEqual(context.verification.icon, "https://static.cdninstagram.com/rsrc.php/yw/r/icwX0xAk0pz.webp");
   assert.strictEqual(context.verification.accountIdentity.username, "@podo");
   assert.ok(context.verification.accountIdentity.avatar.startsWith("data:image/svg+xml"));
@@ -366,7 +366,7 @@ async function run() {
   assert.strictEqual(item.uri, "https://www.instagram.com/p/COPENAI123/");
   assert.strictEqual(item.date.toISOString(), "2026-08-28T08:00:00.000Z");
   assert.strictEqual(item.contentWarning, undefined);
-  assert.match(item.body, /^<p class="instagram-caption"><small>/);
+  assert.match(item.body, /class="instagram-caption"/);
   assert.doesNotMatch(item.body, /instagram-visual/);
   assert.doesNotMatch(item.body, /Carousel - 1 \/ 2/);
   assert.equal(item.attachments.length, 2);
@@ -384,16 +384,29 @@ async function run() {
   assert.match(item.body, /href="https:\/\/www\.instagram\.com\/sama\/">@sama/);
   assert.match(item.body, /href="https:\/\/www\.instagram\.com\/explore\/tags\/machinelearning\/">#machinelearning/);
   assert.match(item.body, /href="https:\/\/example\.com\/story">https:\/\/example\.com\/story/);
+  assert.match(item.body, /class="instagram-meta-location"/);
+  assert.match(item.body, /Location: San Francisco/);
+  assert.match(item.body, /class="instagram-meta-metrics"/);
+  assert.match(item.body, /<p class="instagram-meta-metrics"><small>.*12,890 likes.*<\/small><\/p>/);
+  assert.match(item.body, /12,890 likes/);
+  assert.match(item.body, /342 comments/);
+  assert.match(item.body, /55,000 views/);
+  assert.match(item.body, /78,000 plays/);
+  assert.ok(
+    item.body.indexOf("instagram-meta-location") < item.body.indexOf("instagram-meta-metrics"),
+    "location body meta should appear above metrics"
+  );
+  assert.ok(
+    item.body.indexOf("instagram-meta-metrics") < item.body.indexOf("instagram-caption"),
+    "metrics body meta should appear above caption"
+  );
+  assert.ok(!item.annotations || item.annotations.length === 0, "feed posts should not use native annotations");
+  assert.doesNotMatch(item.body, /\bCarousel\b/);
+  assert.doesNotMatch(item.body, /\bPhoto\b/);
   assert.strictEqual(item.author.name, "OpenAI");
   assert.strictEqual(item.author.username, "@openai");
   assert.strictEqual(item.author.uri, "https://www.instagram.com/openai/");
   assert.ok(item.author.avatar.startsWith("data:image/svg+xml"));
-  assert.match(item.annotations[0].text, /Carousel/);
-  assert.match(item.annotations[1].text, /Location: San Francisco/);
-  assert.match(item.annotations[2].text, /12,890 likes/);
-  assert.match(item.annotations[2].text, /342 comments/);
-  assert.match(item.annotations[2].text, /55,000 views/);
-  assert.match(item.annotations[2].text, /78,000 plays/);
   assert.deepStrictEqual(JSON.parse(item.actions.comments), {
     mediaId: "3330000000000000001_12345",
     url: "https://www.instagram.com/p/COPENAI123/"
@@ -459,11 +472,13 @@ async function run() {
   assert.ok(actionItem.actions.unlike);
   assert.strictEqual(actionItem.actions.like, undefined);
   assert.ok(apiCall(actionContext, "/web/likes/3330000000000000001_12345/like/"));
+  assert.match(actionItem.body, /12,891 likes/);
 
   vm.runInContext(`performAction("unlike", ${JSON.stringify(actionItem.actions.unlike)}, results[0])`, actionContext);
   await settle();
   assert.ifError(actionContext.actionError);
   assert.ok(actionItem.actions.like);
+  assert.match(actionItem.body, /12,890 likes/);
 
   vm.runInContext(`performAction("save", ${JSON.stringify(actionItem.actions.save)}, results[0])`, actionContext);
   await settle();
@@ -577,7 +592,7 @@ async function run() {
   vm.runInContext("verify()", home);
   await settle();
   assert.ifError(home.error);
-  assert.strictEqual(home.verification.displayName, "Instagram - For You");
+  assert.strictEqual(home.verification.displayName, "Instagram · For You");
   assert.strictEqual(home.verification.icon, "https://static.cdninstagram.com/rsrc.php/yw/r/icwX0xAk0pz.webp");
   vm.runInContext("load()", home);
   await settle();
@@ -615,9 +630,12 @@ async function run() {
   assert.strictEqual(comments.actionResult[0], original);
   assert.strictEqual(comments.actionResult[1].author.username, "@sama");
   assert.match(comments.actionResult[1].body, /This looks excellent/);
-  assert.match(comments.actionResult[1].annotations[0].text, /12 likes/);
+  assert.match(comments.actionResult[1].body, /class="instagram-meta-metrics"/);
+  assert.match(comments.actionResult[1].body, /12 likes/);
+  assert.ok(!comments.actionResult[1].annotations || comments.actionResult[1].annotations.length === 0);
   assert.strictEqual(comments.actionResult[2].author.username, "@openai");
   assert.match(comments.actionResult[2].annotations[0].text, /Reply/);
+  assert.doesNotMatch(comments.actionResult[2].annotations[0].text, /likes/);
 
   const fallback = makeContext({
     instagram_sources: "openai",

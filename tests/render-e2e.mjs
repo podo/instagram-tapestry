@@ -208,6 +208,8 @@ function renderPage(item, comments) {
     .native-media + .native-media { display: none; }
     .post-body p:not(.instagram-visual) { padding: 12px 16px 0; font-size: 13px; line-height: 1.4; color: #303038; }
     .post-body .instagram-caption small { font-size: 13px; line-height: 1.4; }
+    .post-body .instagram-meta-location small,
+    .post-body .instagram-meta-metrics small { font-size: 12px; color: #666875; }
     .post-body a { color: #0b63ce; text-decoration: none; font-weight: 620; }
     .video-badge, .count-badge { position: absolute; right: 12px; top: 12px; border-radius: 999px; background: rgba(0,0,0,.68); color: #fff; padding: 6px 9px; font-size: 12px; font-weight: 700; }
     .count-badge { left: 12px; right: auto; }
@@ -311,11 +313,13 @@ function renderAttachments(attachments) {
 
 function renderComment(comment) {
   const isReply = (comment.annotations || []).some(annotation => annotation.text === "Reply");
-  const metrics = (comment.annotations || []).map(annotation => annotation.text).join(" · ");
+  const metricsMatch = String(comment.body || "").match(/class="instagram-meta-metrics"><small>([\s\S]*?)<\/small>/i);
+  const metrics = metricsMatch ? metricsMatch[1] : "";
+  const body = String(comment.body || "").replace(/<p class="instagram-meta-metrics">[\s\S]*?<\/p>/i, "");
   return `<article class="comment${isReply ? " reply" : ""}" data-testid="comment-card">
     <div class="avatar"><img src="${attr(comment.author.avatar || "")}" alt=""></div>
     <div>
-      <div class="body"><strong>${escapeHtml(comment.author.username || comment.author.name)}</strong> ${comment.body || ""}</div>
+      <div class="body"><strong>${escapeHtml(comment.author.username || comment.author.name)}</strong> ${body}</div>
       <div class="meta">${escapeHtml(metrics)}</div>
     </div>
   </article>`;

@@ -51,7 +51,7 @@ async function verifyAsync() {
   const credentials = normalizedCredentials();
   const mode = normalizedSourceMode();
   const result = {
-    displayName: `Instagram - ${sourceLabel()}`,
+    displayName: `Instagram · ${sourceLabel()}`,
     icon: instagramIconUrl
   };
 
@@ -62,7 +62,7 @@ async function verifyAsync() {
     page = await profileFeedPage(profiles[0], 1, null, credentials);
     if (profiles.length === 1) {
       const profile = profileFromPage(page, profiles[0]);
-      result.displayName = `Instagram - @${profile.username || profiles[0]}`;
+      result.displayName = `Instagram · @${profile.username || profiles[0]}`;
       if (profile.avatar) result.icon = profile.avatar;
     }
   }
@@ -70,11 +70,11 @@ async function verifyAsync() {
     const tags = normalizedHashtags();
     if (tags.length === 0) throw new Error("Enter one or more Instagram hashtags.");
     page = await hashtagFeedPage(tags[0], 1, null, credentials);
-    if (tags.length === 1) result.displayName = `Instagram - #${tags[0]}`;
+    if (tags.length === 1) result.displayName = `Instagram · #${tags[0]}`;
   }
   else {
     page = await homeFeedPage(1, null, credentials, mode);
-    result.displayName = `Instagram - ${sourceLabel()}`;
+    result.displayName = `Instagram · ${sourceLabel()}`;
   }
 
   const accountIdentity = await currentAccountIdentity(credentials);
@@ -551,22 +551,22 @@ function postToItem(post) {
   const body = postBody(post, mediaAttachments.length === 0 && postMediaEntries(post).length > 0);
   if (body) item.body = body;
   if (post.contentWarning) item.contentWarning = post.contentWarning;
-  item.author = postIdentity(post);
-
-  const annotations = postAnnotations(post);
-  if (annotations.length > 0) item.annotations = annotations;
 
   const attachments = mediaAttachments.length > 0 ? mediaAttachments : postFallbackAttachments(post);
   if (attachments.length > 0) item.attachments = attachments;
 
+  // Assign author last — matches X/Bluesky and Loom identity quirks.
+  item.author = postIdentity(post);
   item.actions = postActions(post);
   return item;
 }
 
 function postBody(post, useInlineMedia = false) {
   const parts = [];
+  const meta = postMetaHtml(post);
   const visual = useInlineMedia ? postVisualHtml(post) : "";
   const caption = captionHtml(post && post.text ? post.text : "");
+  if (meta) parts.push(meta);
   if (visual) parts.push(visual);
   if (caption) parts.push(caption);
   return parts.join("");
@@ -581,21 +581,72 @@ function postIdentity(post) {
   );
 }
 
-function postAnnotations(post) {
-  const annotations = [];
-  if (post.typeLabel) annotations.push(Annotation.createWithText(post.typeLabel));
-  if (showLocation() && post.location) annotations.push(Annotation.createWithText(`Location: ${post.location}`));
-
-  if (showMetrics()) {
-    const details = [];
-    if (post.likes > 0) details.push(`${formatCount(post.likes)} likes`);
-    if (post.comments > 0) details.push(`${formatCount(post.comments)} comments`);
-    if (post.views > 0) details.push(`${formatCount(post.views)} views`);
-    if (post.plays > 0) details.push(`${formatCount(post.plays)} plays`);
-    if (details.length > 0) annotations.push(Annotation.createWithText(details.join(" - ")));
+function postMetaHtml(post) {
+  const blocks = [];
+  // Loom renders native annotations above Service. Keep location + metrics under Author.
+  if (showLocation() && post.location) {
+    blocks.push(`<p class="instagram-meta-location"><small>${escapeHtml(`Location: ${post.location}`)}</small></p>`);
   }
+  if (showMetrics()) {
+    const text = metricsTextFromCounts(metricsCountsForPost(post));
+    if (text) blocks.push(metricsMetaHtml(text));
+  }
+  return blocks.join("");
+}
 
-  return annotations;
+function metricsMetaHtml(text) {
+  return `<p class="instagram-meta-metrics"><small>${escapeHtml(text)}</small></p>`;
+}
+
+function metricsCountsForPost(post) {
+  return {
+    likes: finiteNumber(post && post.likes),
+    comments: finiteNumber(post && post.comments),
+    views: finiteNumber(post && post.views),
+    plays: finiteNumber(post && post.plays)
+  };
+}
+
+function metricsTextFromCounts(metrics) {
+  const details = [];
+  if (metrics.likes > 0) details.push(`${formatCount(metrics.likes)} likes`);
+  if (metrics.comments > 0) details.push(`${formatCount(metrics.comments)} comments`);
+  if (metrics.views > 0) details.push(`${formatCount(metrics.views)} views`);
+  if (metrics.plays > 0) details.push(`${formatCount(metrics.plays)} plays`);
+  return details.join(" - ");
+}
+
+function parseMetricsFromText(text) {
+  const value = String(text || "");
+  const metrics = { likes: 0, comments: 0, views: 0, plays: 0 };
+  const likes = value.match(/([\d,.]+)\s+likes?/i);
+  const comments = value.match(/([\d,.]+)\s+comments?/i);
+  const views = value.match(/([\d,.]+)\s+views?/i);
+  const plays = value.match(/([\d,.]+)\s+plays?/i);
+  if (likes) metrics.likes = Number(String(likes[1]).replace(/,/g, "")) || 0;
+  if (comments) metrics.comments = Number(String(comments[1]).replace(/,/g, "")) || 0;
+  if (views) metrics.views = Number(String(views[1]).replace(/,/g, "")) || 0;
+  if (plays) metrics.plays = Number(String(plays[1]).replace(/,/g, "")) || 0;
+  if (!likes && !comments && !views && !plays) return null;
+  return metrics;
+}
+
+function adjustEngagementBodyMetrics(body, actionId) {
+  const html = String(body || "");
+  const match = html.match(/<p class="instagram-meta-metrics">([\s\S]*?)<\/p>/i);
+  if (!match) return body;
+
+  const inner = String(match[1] || "").replace(/<\/?small>/gi, "");
+  const metrics = parseMetricsFromText(htmlDecode(inner));
+  if (!metrics) return body;
+
+  if (actionId === "like") metrics.likes += 1;
+  else if (actionId === "unlike") metrics.likes = Math.max(0, metrics.likes - 1);
+  else return body;
+
+  const nextText = metricsTextFromCounts(metrics);
+  if (!nextText) return html.replace(match[0], "");
+  return html.replace(match[0], metricsMetaHtml(nextText));
 }
 
 function postFallbackAttachments(post) {
@@ -738,6 +789,9 @@ function toggleRemoteAction(item, actionId) {
   delete actions[actionId];
   actions[replacement] = actionValueForItem(item);
   item.actions = actions;
+  if (actionId === "like" || actionId === "unlike") {
+    item.body = adjustEngagementBodyMetrics(item.body, actionId);
+  }
   return item;
 }
 
@@ -824,7 +878,10 @@ function commentsToItems(comments, postUrl) {
   for (const comment of comments || []) {
     const uri = `${postUrl}#comment-${encodeURIComponent(comment.id)}`;
     const item = Item.createWithUriDate(uri, comment.date || new Date());
-    const body = paragraphsHtml(comment.text);
+    const meta = showMetrics() && comment.likes > 0
+      ? metricsMetaHtml(`${formatCount(comment.likes)} likes`)
+      : "";
+    const body = meta + paragraphsHtml(comment.text);
     if (body) item.body = body;
     item.author = createIdentity(
       comment.authorName || comment.authorUsername || "Instagram",
@@ -833,10 +890,7 @@ function commentsToItems(comments, postUrl) {
       comment.authorUsername ? `${instagramBase}/${comment.authorUsername}/` : instagramBase
     );
 
-    const annotations = [];
-    if (comment.isReply) annotations.push(Annotation.createWithText("Reply"));
-    if (showMetrics() && comment.likes > 0) annotations.push(Annotation.createWithText(`${formatCount(comment.likes)} likes`));
-    if (annotations.length > 0) item.annotations = annotations;
+    if (comment.isReply) item.annotations = [Annotation.createWithText("Reply")];
     items.push(item);
   }
   return items;
@@ -1368,8 +1422,9 @@ function normalizedWhitespace(value) {
 function createIdentity(name, username, avatar, uri) {
   const identity = Identity.createWithName(name || "Instagram");
   if (username) identity.username = username;
-  if (avatar) identity.avatar = avatar;
   if (uri) identity.uri = uri;
+  // Profile picture on the author row (not the feed/service icon).
+  if (avatar != null) identity.avatar = avatar;
   return identity;
 }
 

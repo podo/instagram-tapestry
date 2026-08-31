@@ -39,7 +39,7 @@ or include them in screenshots.
 - Captions kept as a smaller text block after the media surface in Tapestry
 - Smaller caption rendering with linked `@mentions`, `#hashtags`, and URLs
 - Optional metrics for likes, comments, views, and plays
-- Optional location annotations
+- Optional location and metrics as body meta under Author (not annotations)
 - Like, Favorite, Save, and Repost actions with stateful remove actions
 - Comments context action for expanding visible comments inside Tapestry
 - Current-batch refresh with bounded pagination per profile, hashtag, or home feed
