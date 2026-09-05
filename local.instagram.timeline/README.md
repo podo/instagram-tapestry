@@ -50,11 +50,12 @@ or include them in screenshots.
 
 This connector uses Instagram's private web-session endpoints. Instagram can
 change response shapes, require a checkpoint, expire cookies, rate-limit the
-account, or block automated requests. If Tapestry logs `too many HTTP redirects`
-for `www.instagram.com`, Instagram bounced the session to a login or checkpoint
-page instead of returning JSON. Re-run the cookie helper while logged in, paste
-the new Cookie Header (including `mid` and `ig_did` when present), and Verify
-the feed again.
+account, or block automated requests. For You, Following, and Favorites first
+warm the web session (so Instagram can set `mid`, `ig_did`, and `X-IG-WWW-Claim`)
+and retry `i.instagram.com` when `www.instagram.com` bounces through login
+redirects. If Tapestry still logs a login or checkpoint error, re-run the cookie
+helper while logged in, paste the new Cookie Header (including `mid` and
+`ig_did` when present), and Verify the feed again.
 
 Like, Favorite, Save, and Repost actions use the same logged-in session and
 change your Instagram account when selected. The connector does not publish
