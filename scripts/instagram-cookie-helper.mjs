@@ -61,13 +61,20 @@ try {
     throw new Error("Could not find both sessionid and csrftoken. Confirm the temporary browser is logged in to instagram.com.");
   }
 
+  const extraNames = ["ds_user_id", "mid", "ig_did", "datr", "rur", "ig_nrcb"];
   const parts = [`sessionid=${sessionId}`, `csrftoken=${csrf}`];
-  if (userId) parts.push(`ds_user_id=${userId}`);
+  const copiedExtras = [];
+  for (const name of extraNames) {
+    const value = name === "ds_user_id" ? userId : cookieValue(cookies, name);
+    if (!value) continue;
+    parts.push(`${name}=${value}`);
+    copiedExtras.push(name);
+  }
   const header = parts.join("; ");
   const copied = copyToClipboard(header);
   if (copied) {
-    const userIdStatus = userId ? `; ds_user_id length=${userId.length}` : "";
-    console.log(`Copied Cookie Header to clipboard. sessionid length=${sessionId.length}; csrftoken length=${csrf.length}${userIdStatus}.`);
+    const extrasStatus = copiedExtras.length > 0 ? `; extras=${copiedExtras.join(",")}` : "";
+    console.log(`Copied Cookie Header to clipboard. sessionid length=${sessionId.length}; csrftoken length=${csrf.length}${extrasStatus}.`);
   }
   else {
     console.log(`Found cookies. sessionid length=${sessionId.length}; csrftoken length=${csrf.length}.`);

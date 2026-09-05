@@ -4,7 +4,7 @@
       "name": "cookie_header",
       "type": "text",
       "prompt": "Cookie Header",
-      "placeholder": "sessionid=...; csrftoken=...; ds_user_id=..."
+      "placeholder": "sessionid=...; csrftoken=...; ds_user_id=...; mid=...; ig_did=..."
     },
     {
       "name": "sessionid",
@@ -23,6 +23,18 @@
       "type": "text",
       "prompt": "ds_user_id Cookie",
       "placeholder": "Optional, copied from the same browser session"
+    },
+    {
+      "name": "mid",
+      "type": "text",
+      "prompt": "mid Cookie",
+      "placeholder": "Optional machine id from the same browser session"
+    },
+    {
+      "name": "ig_did",
+      "type": "text",
+      "prompt": "ig_did Cookie",
+      "placeholder": "Optional device id from the same browser session"
     },
     {
       "name": "source_mode",
@@ -74,6 +86,13 @@
       "prompt": "Advanced: IG App ID",
       "placeholder": "Leave blank for bundled web value",
       "value": "936619743392459"
+    },
+    {
+      "name": "ig_asbd_id",
+      "type": "text",
+      "prompt": "Advanced: IG ASBD ID",
+      "placeholder": "Leave blank for bundled web value",
+      "value": "359341"
     }
   ]
 }

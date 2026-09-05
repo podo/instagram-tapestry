@@ -319,10 +319,13 @@ async function run() {
   assert.strictEqual(pluginConfig.icon, "https://static.cdninstagram.com/rsrc.php/yw/r/icwX0xAk0pz.webp");
   assert.strictEqual(pluginConfig.provides_attachments, true);
   assert.strictEqual(pluginConfig.minimum_app_version, "1.4");
-  assert.strictEqual(pluginConfig.version, 8);
+  assert.strictEqual(pluginConfig.version, 9);
   assert.ok(uiConfig.inputs.some(input => input.name === "cookie_header"));
   assert.ok(uiConfig.inputs.some(input => input.name === "instagram_sources"));
   assert.ok(uiConfig.inputs.some(input => input.name === "ig_app_id"));
+  assert.ok(uiConfig.inputs.some(input => input.name === "ig_asbd_id"));
+  assert.ok(uiConfig.inputs.some(input => input.name === "mid"));
+  assert.ok(uiConfig.inputs.some(input => input.name === "ig_did"));
   assert.ok(uiConfig.inputs.some(input => input.name === "source_mode" && input.choices === "Profiles,Hashtag,For You,Following,Favorites"));
   assert.ok(discovery.sites.includes("instagram.com"));
   assert.ok(discovery.input.some(input => input.url === "https://www.instagram.com/$1/"));
@@ -355,6 +358,9 @@ async function run() {
   assert.match(profileApi.headers.Cookie, /ds_user_id=12345/);
   assert.strictEqual(profileApi.headers["X-CSRFToken"], "csrf-cookie");
   assert.strictEqual(profileApi.headers["X-IG-App-ID"], "936619743392459");
+  assert.strictEqual(profileApi.headers["X-ASBD-ID"], "359341");
+  assert.strictEqual(profileApi.headers["X-IG-WWW-Claim"], "0");
+  assert.strictEqual(profileApi.headers["sec-fetch-site"], "same-origin");
 
   vm.runInContext("load()", context);
   await settle();
@@ -655,6 +661,42 @@ async function run() {
   await settle();
   assert.ok(missingCredentials.error);
   assert.match(missingCredentials.error.message, /sessionid and csrftoken/);
+
+  const extraCookies = makeContext({
+    cookie_header: "sessionid=session-cookie; csrftoken=csrf-cookie; ds_user_id=12345; mid=machine; ig_did=device",
+    sessionid: "",
+    csrftoken: "",
+    ds_user_id: ""
+  });
+  vm.runInContext("load()", extraCookies);
+  await settle();
+  assert.ifError(extraCookies.error);
+  const extraApi = apiCall(extraCookies, "/feed/user/openai/username/");
+  assert.match(extraApi.headers.Cookie, /mid=machine/);
+  assert.match(extraApi.headers.Cookie, /ig_did=device/);
+
+  const redirectLoop = makeContext({
+    source_mode: "For You",
+    instagram_sources: "",
+    sendRequest: async () => {
+      throw new Error("too many HTTP redirects");
+    }
+  });
+  vm.runInContext("load()", redirectLoop);
+  await settle();
+  assert.ok(redirectLoop.error);
+  assert.match(redirectLoop.error.message, /login or checkpoint page/);
+  assert.match(redirectLoop.error.message, /mid/);
+
+  const loginHtml = makeContext({
+    source_mode: "For You",
+    instagram_sources: "",
+    sendRequest: async () => "<html><form action=\"/accounts/login/\"><input name=\"username\"></form></html>"
+  });
+  vm.runInContext("load()", loginHtml);
+  await settle();
+  assert.ok(loginHtml.error);
+  assert.match(loginHtml.error.message, /login or checkpoint page/);
 }
 
 run().catch(error => {
