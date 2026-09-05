@@ -319,7 +319,7 @@ async function run() {
   assert.strictEqual(pluginConfig.icon, "https://static.cdninstagram.com/rsrc.php/yw/r/icwX0xAk0pz.webp");
   assert.strictEqual(pluginConfig.provides_attachments, true);
   assert.strictEqual(pluginConfig.minimum_app_version, "1.4");
-  assert.strictEqual(pluginConfig.version, 9);
+  assert.strictEqual(pluginConfig.version, 10);
   assert.ok(uiConfig.inputs.some(input => input.name === "cookie_header"));
   assert.ok(uiConfig.inputs.some(input => input.name === "instagram_sources"));
   assert.ok(uiConfig.inputs.some(input => input.name === "ig_app_id"));
@@ -674,6 +674,7 @@ async function run() {
   const extraApi = apiCall(extraCookies, "/feed/user/openai/username/");
   assert.match(extraApi.headers.Cookie, /mid=machine/);
   assert.match(extraApi.headers.Cookie, /ig_did=device/);
+  assert.strictEqual(extraApi.headers["X-MID"], "machine");
 
   const redirectLoop = makeContext({
     source_mode: "For You",
@@ -697,6 +698,85 @@ async function run() {
   await settle();
   assert.ok(loginHtml.error);
   assert.match(loginHtml.error.message, /login or checkpoint page/);
+
+  const warmed = makeContext({
+    source_mode: "For You",
+    instagram_sources: "",
+    sendRequest: async (url, method, parameters, headers) => {
+      warmed._calls.push({ url, method, parameters, headers });
+      if (url.includes("i.instagram.com") && url.includes("get_ruling_for_content")) {
+        return JSON.stringify({
+          status: 200,
+          headers: {
+            "x-ig-set-www-claim": "hmac.TESTCLAIM",
+            "ig-set-authorization": "Bearer IGSID:test-auth",
+            "set-cookie": "mid=warm-mid; Path=/; Domain=.instagram.com"
+          },
+          body: { status: "ok" }
+        });
+      }
+      if (url.includes("/feed/timeline/")) {
+        assert.match(headers.Cookie, /mid=warm-mid/);
+        assert.strictEqual(headers["X-IG-WWW-Claim"], "hmac.TESTCLAIM");
+        assert.strictEqual(headers["X-MID"], "warm-mid");
+        assert.strictEqual(headers.Authorization, "Bearer IGSID:test-auth");
+        return JSON.stringify(homeFeedBody());
+      }
+      return JSON.stringify({});
+    }
+  });
+  vm.runInContext("load()", warmed);
+  await settle();
+  assert.ifError(warmed.error);
+  assert.ok(apiCall(warmed, "i.instagram.com/api/v1/web/get_ruling_for_content"), "For You should warm the session on i.instagram.com");
+  assert.ok(apiCall(warmed, "/feed/timeline/"), "For You should still request the timeline after warmup");
+  assert.strictEqual(warmed._state.get("instagram.wwwClaim"), "hmac.TESTCLAIM");
+  assert.strictEqual(JSON.parse(warmed._state.get("instagram.machineCookies")).mid, "warm-mid");
+  assert.ok(warmed.results.length > 0);
+
+  const mobileFallback = makeContext({
+    source_mode: "For You",
+    instagram_sources: "",
+    sendRequest: async (url, method, parameters, headers) => {
+      mobileFallback._calls.push({ url, method, parameters, headers });
+      if (url.includes("www.instagram.com") && url.includes("/feed/timeline/")) {
+        throw new Error("too many HTTP redirects");
+      }
+      if (url.includes("i.instagram.com") && url.includes("/feed/timeline/")) {
+        return JSON.stringify(homeFeedBody());
+      }
+      if (url.includes("get_ruling_for_content") || url.includes("current_user")) {
+        return JSON.stringify({ status: "ok" });
+      }
+      return JSON.stringify({});
+    }
+  });
+  vm.runInContext("load()", mobileFallback);
+  await settle();
+  assert.ifError(mobileFallback.error);
+  assert.ok(apiCall(mobileFallback, "i.instagram.com/api/v1/feed/timeline"), "redirect loops on www should retry the timeline on i.instagram.com");
+  assert.ok(mobileFallback.results.length > 0);
+
+  const loginFinalUrl = makeContext({
+    source_mode: "For You",
+    instagram_sources: "",
+    sendRequest: async (url) => {
+      loginFinalUrl._calls.push({ url });
+      if (url.includes("/feed/timeline/")) {
+        return JSON.stringify({
+          status: 200,
+          headers: {},
+          url: "https://www.instagram.com/accounts/login/?next=%2F",
+          body: "<html>redirected</html>"
+        });
+      }
+      return JSON.stringify({ status: "ok" });
+    }
+  });
+  vm.runInContext("load()", loginFinalUrl);
+  await settle();
+  assert.ok(loginFinalUrl.error);
+  assert.match(loginFinalUrl.error.message, /login or checkpoint page/);
 }
 
 run().catch(error => {

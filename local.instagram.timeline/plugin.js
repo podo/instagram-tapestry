@@ -1,15 +1,21 @@
 // local.instagram.timeline
 
 const instagramBase = "https://www.instagram.com";
+const instagramMobileBase = "https://i.instagram.com";
 const apiBase = `${instagramBase}/api/v1`;
+const mobileApiBase = `${instagramMobileBase}/api/v1`;
 const instagramIconUrl = "https://static.cdninstagram.com/rsrc.php/yw/r/icwX0xAk0pz.webp";
 const defaultIgAppId = "936619743392459";
 const defaultIgAsbdId = "359341";
-const connectorBuild = "2026-09-05T10:45Z-0.1.8-redirect-loop";
+const connectorBuild = "2026-09-05T11:00Z-0.1.9-session-warmup";
 const browserUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36";
 const extraCookieNames = ["mid", "ig_did", "datr", "rur", "ig_nrcb"];
 const maximumSources = 25;
 const maximumPagesPerSource = 10;
+const runtimeSession = {
+  cookies: {},
+  authorization: ""
+};
 
 function verify() {
   verifyAsync().then(processVerification).catch(processError);
@@ -40,6 +46,7 @@ async function performActionAsync(actionId, actionValue, item) {
 	if (!mediaId) throw new Error(`Could not determine the Instagram media ID for ${actionId}.`);
 
 	const credentials = normalizedCredentials();
+	await ensureWebSession(credentials);
 	const postUrl = value.url || (item && item.uri) || `${instagramBase}/p/${mediaId}/`;
 	if (actionId === "comments") {
 		const page = await mediaCommentsPage(mediaId, credentials);
@@ -53,6 +60,7 @@ async function performActionAsync(actionId, actionValue, item) {
 
 async function verifyAsync() {
   const credentials = normalizedCredentials();
+  await ensureWebSession(credentials);
   const mode = normalizedSourceMode();
   const result = {
     displayName: `Instagram · ${sourceLabel()}`,
@@ -88,6 +96,7 @@ async function verifyAsync() {
 
 async function loadAsync() {
   const credentials = normalizedCredentials();
+  await ensureWebSession(credentials);
   const mode = normalizedSourceMode();
   if (mode === "profiles") return loadProfileFeeds(credentials);
   if (mode === "hashtag") return loadHashtagFeeds(credentials);
@@ -217,7 +226,7 @@ async function homeFeedPage(count, cursor, credentials, variant) {
     ["seen_posts", ""],
     ["reason", cursor ? "pagination" : "cold_start_fetch"],
     ["is_pull_to_refresh", cursor ? "0" : "1"],
-    ["_csrftoken", credentials.csrf]
+    ["_csrftoken", currentCsrf(credentials)]
   ];
   if (cursor) form.push(["max_id", cursor]);
   if (feedVariant) form.push(["feed_type", feedVariant]);
@@ -764,7 +773,7 @@ async function performMediaAction(actionId, mediaId, credentials) {
     try {
       const headers = webHeaders(credentials, `${instagramBase}/`);
       headers["Content-Type"] = "application/x-www-form-urlencoded";
-      const parameters = encodeQuery([["_csrftoken", credentials.csrf]]);
+      const parameters = encodeQuery([["_csrftoken", currentCsrf(credentials)]]);
       await requestJson(`${apiBase}${path}`, "POST", parameters, headers, actionId);
       return;
     }
@@ -905,30 +914,47 @@ function requestJson(url, method, body, headers, action) {
 }
 
 async function requestText(url, method, body, headers, action) {
-  try {
-    return await requestTextOnce(url, method, body, headers, action);
+  const attempts = [{ url, headers, label: hostLabel(url) }];
+  const mobileUrl = wwwToMobileUrl(url);
+  if (mobileUrl && mobileUrl !== url) {
+    attempts.push({ url: mobileUrl, headers, label: "i.instagram.com" });
   }
-  catch (error) {
-    if (!isRedirectLoopError(error) || headers["X-ASBD-ID"] == null) {
+
+  let lastError = null;
+  for (let index = 0; index < attempts.length; index += 1) {
+    const attempt = attempts[index];
+    try {
+      return await requestTextOnce(attempt.url, method, body, attempt.headers, action);
+    }
+    catch (error) {
+      lastError = error;
+      const canRetryHost = index < attempts.length - 1 && isRecoverableHostError(error);
+      if (canRetryHost) {
+        console.log(`[local.instagram.timeline] ${action} ${attempt.label} missed (${shortError(error)}); retry ${attempts[index + 1].label}`);
+        continue;
+      }
+      if (isRedirectLoopError(error) && attempt.headers["X-ASBD-ID"] != null) {
+        const retryHeaders = { ...attempt.headers };
+        delete retryHeaders["X-ASBD-ID"];
+        try {
+          return await requestTextOnce(attempt.url, method, body, retryHeaders, action);
+        }
+        catch (retryError) {
+          throw normalizedRequestError(retryError, action);
+        }
+      }
       throw normalizedRequestError(error, action);
     }
-    const retryHeaders = { ...headers };
-    delete retryHeaders["X-ASBD-ID"];
-    try {
-      return await requestTextOnce(url, method, body, retryHeaders, action);
-    }
-    catch (retryError) {
-      throw normalizedRequestError(retryError, action);
-    }
   }
+  throw normalizedRequestError(lastError, action);
 }
 
 async function requestTextOnce(url, method, body, headers, action) {
   const text = await sendRequest(url, method, body, headers, true);
   const wrapped = statusWrappedResponse(text);
   if (wrapped) {
-    rememberWwwClaim(wrapped.headers);
-    if (isLoginRedirectStatus(wrapped.status, wrapped.headers, wrapped.body)) {
+    ingestSessionHeaders(wrapped.headers);
+    if (isLoginDestination(wrapped.url) || isLoginRedirectStatus(wrapped.status, wrapped.headers, wrapped.body)) {
       throw loginRedirectError();
     }
     if (wrapped.status >= 400) throw statusError(wrapped.status, wrapped.body, wrapped.headers, action);
@@ -1002,10 +1028,36 @@ function loginRedirectError() {
   return new Error("Instagram redirected the session to a login or checkpoint page. Refresh sessionid, csrftoken, mid, and ig_did from a logged-in instagram.com browser session.");
 }
 
+function isLoginDestination(url) {
+  return /\/accounts\/login|\/challenge\/|\/checkpoint\//i.test(String(url || ""));
+}
+
+function isRecoverableHostError(error) {
+  return isRedirectLoopError(error) || /login or checkpoint page/i.test(error && error.message ? error.message : String(error));
+}
+
+function shortError(error) {
+  if (isRedirectLoopError(error)) return "redirect-loop";
+  const message = error && error.message ? error.message : String(error);
+  if (/login or checkpoint page/i.test(message)) return "login-redirect";
+  return message.replace(/\s+/g, " ").slice(0, 80);
+}
+
+function hostLabel(url) {
+  if (/^https:\/\/i\.instagram\.com/i.test(url)) return "i.instagram.com";
+  if (/^https:\/\/www\.instagram\.com/i.test(url)) return "www.instagram.com";
+  return "instagram";
+}
+
+function wwwToMobileUrl(url) {
+  if (!/^https:\/\/www\.instagram\.com\/api\//i.test(url)) return null;
+  return url.replace(/^https:\/\/www\.instagram\.com/i, instagramMobileBase);
+}
+
 function isLoginRedirectStatus(status, headers, body) {
   if (status !== 301 && status !== 302 && status !== 303 && status !== 307 && status !== 308) return false;
   const location = headerValue(headers, "location") || "";
-  return /accounts\/login|(?:^|\/\/)(?:www\.)?instagram\.com\/?$/i.test(location) || isLoginPage(body);
+  return isLoginDestination(location) || isLoginPage(body);
 }
 
 function throwIfLoginPage(text) {
@@ -1080,6 +1132,7 @@ function isFallbackProfileError(error) {
 }
 
 function webHeaders(credentials, referer) {
+  const cookie = applyRuntimeCookies(credentials.cookie);
   const headers = {
     "User-Agent": browserUserAgent,
     "Accept": "*/*",
@@ -1090,17 +1143,137 @@ function webHeaders(credentials, referer) {
     "sec-fetch-dest": "empty",
     "sec-fetch-mode": "cors",
     "sec-fetch-site": "same-origin",
-    "X-CSRFToken": credentials.csrf,
+    "X-CSRFToken": currentCsrf(credentials),
     "X-IG-App-ID": normalizedIgAppId(),
     "X-IG-WWW-Claim": currentWwwClaim(),
     "X-Requested-With": "XMLHttpRequest",
     "Origin": instagramBase,
     "Referer": referer || `${instagramBase}/`,
-    "Cookie": credentials.cookie
+    "Cookie": cookie
   };
   const asbdId = normalizedIgAsbdId();
   if (asbdId) headers["X-ASBD-ID"] = asbdId;
+  const mid = cookieValue(cookie, "mid");
+  if (mid) headers["X-MID"] = mid;
+  const authorization = runtimeSession.authorization || currentAuthorization();
+  if (authorization) headers.Authorization = authorization;
   return headers;
+}
+
+async function ensureWebSession(credentials) {
+  if (credentials.sessionReady) return;
+  loadPersistedSession();
+  logSession("session.start", credentials);
+  const probes = [
+    `${mobileApiBase}/web/get_ruling_for_content/?content_type=GENERIC`,
+    `${mobileApiBase}/accounts/current_user/?edit=true`
+  ];
+  for (const url of probes) {
+    try {
+      await requestTextOnce(url, "GET", null, webHeaders(credentials, `${instagramBase}/`), "SessionWarmup");
+      credentials.sessionReady = true;
+      persistSession();
+      logSession("session.ready", credentials);
+      return;
+    }
+    catch (error) {
+      console.log(`[local.instagram.timeline] warmup ${hostLabel(url)} missed (${shortError(error)})`);
+    }
+  }
+  credentials.sessionReady = true;
+  logSession("session.unconfirmed", credentials);
+}
+
+function loadPersistedSession() {
+  runtimeSession.authorization = currentAuthorization();
+  const stored = readJsonItem("instagram.machineCookies");
+  if (!stored || typeof stored !== "object") return;
+  for (const name of extraCookieNames) {
+    if (stored[name]) runtimeSession.cookies[name] = String(stored[name]);
+  }
+}
+
+function persistSession() {
+  if (typeof setItem !== "function") return;
+  const stored = {};
+  for (const name of extraCookieNames) {
+    if (runtimeSession.cookies[name]) stored[name] = runtimeSession.cookies[name];
+  }
+  if (Object.keys(stored).length > 0) setItem("instagram.machineCookies", JSON.stringify(stored));
+}
+
+function ingestSessionHeaders(headers) {
+  rememberWwwClaim(headers);
+  const authorization = headerValue(headers, "ig-set-authorization") || headerValue(headers, "x-ig-set-authorization");
+  if (authorization && !authorization.endsWith(":")) {
+    runtimeSession.authorization = authorization;
+    if (typeof setItem === "function") setItem("instagram.authorization", authorization);
+  }
+  const midHeader = headerValue(headers, "ig-set-x-mid") || headerValue(headers, "x-ig-set-x-mid");
+  if (midHeader) runtimeSession.cookies.mid = midHeader;
+
+  for (const raw of setCookieValues(headers)) {
+    const first = String(raw).split(";")[0];
+    const index = first.indexOf("=");
+    if (index <= 0) continue;
+    const name = first.slice(0, index).trim();
+    const value = first.slice(index + 1).trim();
+    if (!value) continue;
+    if (extraCookieNames.includes(name) || name === "csrftoken" || name === "ds_user_id") {
+      runtimeSession.cookies[name] = value;
+    }
+  }
+  persistSession();
+}
+
+function setCookieValues(headers) {
+  if (!headers || typeof headers !== "object") return [];
+  const values = [];
+  for (const key of Object.keys(headers)) {
+    if (!/^set-cookie$/i.test(key)) continue;
+    const value = headers[key];
+    if (Array.isArray(value)) values.push(...value);
+    else if (value) values.push(String(value));
+  }
+  const exploded = [];
+  for (const value of values) {
+    String(value).split(/,(?=\s*[A-Za-z0-9_-]+=)/).forEach(part => {
+      if (part && part.trim()) exploded.push(part.trim());
+    });
+  }
+  return exploded;
+}
+
+function applyRuntimeCookies(header) {
+  return upsertCookies(header, runtimeSession.cookies);
+}
+
+function upsertCookies(header, updates) {
+  const cookies = parseCookieHeader(header);
+  const parts = String(header || "").replace(/^cookie:\s*/i, "").split(";").map(part => part.trim()).filter(Boolean);
+  const seen = {};
+  const out = [];
+  for (const part of parts) {
+    const index = part.indexOf("=");
+    if (index <= 0) continue;
+    const key = part.slice(0, index).trim();
+    if (updates && updates[key]) {
+      out.push(`${key}=${updates[key]}`);
+    }
+    else {
+      out.push(part);
+    }
+    seen[key] = true;
+  }
+  for (const name of Object.keys(updates || {})) {
+    if (updates[name] && !seen[name]) out.push(`${name}=${updates[name]}`);
+  }
+  return out.join("; ");
+}
+
+function cookieValue(header, name) {
+  const cookies = parseCookieHeader(header);
+  return cookies[name] || runtimeSession.cookies[name] || "";
 }
 
 function currentWwwClaim() {
@@ -1111,9 +1284,40 @@ function currentWwwClaim() {
   return "0";
 }
 
+function currentAuthorization() {
+  if (runtimeSession.authorization) return runtimeSession.authorization;
+  if (typeof getItem === "function") {
+    const stored = stringValue(getItem("instagram.authorization"));
+    if (stored) return stored;
+  }
+  return "";
+}
+
+function currentCsrf(credentials) {
+  return runtimeSession.cookies.csrftoken || (credentials && credentials.csrf) || "";
+}
+
 function rememberWwwClaim(headers) {
   const claim = headerValue(headers, "x-ig-set-www-claim") || headerValue(headers, "ig-set-www-claim");
   if (claim && typeof setItem === "function") setItem("instagram.wwwClaim", claim);
+}
+
+function logSession(stage, credentials) {
+  const cookie = applyRuntimeCookies(credentials && credentials.cookie);
+  const names = ["sessionid", "csrftoken", "ds_user_id"].concat(extraCookieNames).filter(name => cookieValue(cookie, name));
+  const claim = currentWwwClaim();
+  console.log(`[local.instagram.timeline] ${stage} cookies=${names.join(",") || "none"} claim=${claim === "0" ? "0" : "set"} auth=${currentAuthorization() ? "set" : "none"}`);
+}
+
+function readJsonItem(key) {
+  if (typeof getItem !== "function") return null;
+  try {
+    const raw = getItem(key);
+    return raw ? JSON.parse(raw) : null;
+  }
+  catch (error) {
+    return null;
+  }
 }
 
 function normalizedCredentials() {
