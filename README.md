@@ -18,7 +18,8 @@ the caption represented as a smaller body block after the media.
 
 For easier setup, run `node scripts/instagram-cookie-helper.mjs` from the
 repository root. It opens a temporary browser login session and copies the
-minimal Instagram cookie header needed by the connector.
+Instagram cookie header needed by the connector, including `mid` and `ig_did`
+when the browser set them.
 
 See [local.instagram.timeline/README.md](local.instagram.timeline/README.md) for
 setup, security notes, and development instructions.

@@ -4,7 +4,10 @@ const instagramBase = "https://www.instagram.com";
 const apiBase = `${instagramBase}/api/v1`;
 const instagramIconUrl = "https://static.cdninstagram.com/rsrc.php/yw/r/icwX0xAk0pz.webp";
 const defaultIgAppId = "936619743392459";
+const defaultIgAsbdId = "359341";
+const connectorBuild = "2026-09-05T10:45Z-0.1.8-redirect-loop";
 const browserUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36";
+const extraCookieNames = ["mid", "ig_did", "datr", "rur", "ig_nrcb"];
 const maximumSources = 25;
 const maximumPagesPerSource = 10;
 
@@ -13,6 +16,7 @@ function verify() {
 }
 
 function load() {
+  console.log(`[local.instagram.timeline] load build=${connectorBuild}`);
   loadAsync().then(processResults).catch(processError);
 }
 
@@ -901,21 +905,41 @@ function requestJson(url, method, body, headers, action) {
 }
 
 async function requestText(url, method, body, headers, action) {
-  let text;
   try {
-    text = await sendRequest(url, method, body, headers, true);
+    return await requestTextOnce(url, method, body, headers, action);
   }
   catch (error) {
-    throw normalizedRequestError(error, action);
+    if (!isRedirectLoopError(error) || headers["X-ASBD-ID"] == null) {
+      throw normalizedRequestError(error, action);
+    }
+    const retryHeaders = { ...headers };
+    delete retryHeaders["X-ASBD-ID"];
+    try {
+      return await requestTextOnce(url, method, body, retryHeaders, action);
+    }
+    catch (retryError) {
+      throw normalizedRequestError(retryError, action);
+    }
   }
+}
 
+async function requestTextOnce(url, method, body, headers, action) {
+  const text = await sendRequest(url, method, body, headers, true);
   const wrapped = statusWrappedResponse(text);
   if (wrapped) {
+    rememberWwwClaim(wrapped.headers);
+    if (isLoginRedirectStatus(wrapped.status, wrapped.headers, wrapped.body)) {
+      throw loginRedirectError();
+    }
     if (wrapped.status >= 400) throw statusError(wrapped.status, wrapped.body, wrapped.headers, action);
-    return typeof wrapped.body === "string" ? wrapped.body : JSON.stringify(wrapped.body);
+    const bodyText = typeof wrapped.body === "string" ? wrapped.body : JSON.stringify(wrapped.body);
+    throwIfLoginPage(bodyText);
+    return bodyText;
   }
 
-  return typeof text === "string" ? text : JSON.stringify(text);
+  const raw = typeof text === "string" ? text : JSON.stringify(text);
+  throwIfLoginPage(raw);
+  return raw;
 }
 
 function statusWrappedResponse(value) {
@@ -938,7 +962,7 @@ function statusWrappedResponse(value) {
 function statusError(status, body, headers, action) {
   let message = `Instagram returned HTTP ${status}.`;
   if (status === 401 || status === 403) {
-    message = "Instagram rejected the session cookies. Refresh sessionid and csrftoken from a logged-in instagram.com session.";
+    message = "Instagram rejected the session cookies. Refresh sessionid, csrftoken, mid, and ig_did from a logged-in instagram.com session.";
   }
   else if (status === 404) {
     message = `Instagram could not find the requested ${action || "feed"}. Check the username, hashtag, or account visibility.`;
@@ -960,13 +984,54 @@ function statusError(status, body, headers, action) {
 
 function normalizedRequestError(error, action) {
   const message = error && error.message ? error.message : String(error);
+  if (isRedirectLoopError(error) || /accounts\/login|login_required/i.test(message)) {
+    return loginRedirectError();
+  }
   if (/\b(401|403)\b/.test(message)) return statusError(401, null, null, action);
   if (/\b404\b/.test(message)) return statusError(404, null, null, action);
   if (/\b429\b/.test(message)) return statusError(429, null, null, action);
   return error instanceof Error ? error : new Error(message);
 }
 
+function isRedirectLoopError(error) {
+  const message = error && error.message ? error.message : String(error);
+  return /too many HTTP redirects|too many redirects|redirected too many times|cannot follow more than \d+ redirection/i.test(message);
+}
+
+function loginRedirectError() {
+  return new Error("Instagram redirected the session to a login or checkpoint page. Refresh sessionid, csrftoken, mid, and ig_did from a logged-in instagram.com browser session.");
+}
+
+function isLoginRedirectStatus(status, headers, body) {
+  if (status !== 301 && status !== 302 && status !== 303 && status !== 307 && status !== 308) return false;
+  const location = headerValue(headers, "location") || "";
+  return /accounts\/login|(?:^|\/\/)(?:www\.)?instagram\.com\/?$/i.test(location) || isLoginPage(body);
+}
+
+function throwIfLoginPage(text) {
+  if (!isLoginPage(text)) return;
+  throw loginRedirectError();
+}
+
+function isLoginPage(value) {
+  const text = typeof value === "string" ? value : (value == null ? "" : JSON.stringify(value));
+  if (!text) return false;
+  if (/^\s*[{\[]/.test(text)) {
+    try {
+      const parsed = JSON.parse(text);
+      const message = responseMessage(parsed);
+      return requiresCheckpoint(parsed, message) || /login_required|please wait a few minutes/i.test(message);
+    }
+    catch (error) {
+      return false;
+    }
+  }
+  return /accounts\/login|www\.instagram\.com\/accounts\/login|"login_required"|name="username"/i.test(text);
+}
+
 function parseJsonResponse(text, action) {
+  throwIfLoginPage(text);
+
   let json;
   try {
     json = JSON.parse(String(text || ""));
@@ -1010,22 +1075,45 @@ function responseMessage(value) {
 function isFallbackProfileError(error) {
   const status = error && error.instagramStatus;
   const message = error && error.message ? error.message : "";
+  if (isRedirectLoopError(error) || /login or checkpoint page/i.test(message)) return false;
   return status === 400 || status === 404 || /unexpected|non-JSON|could not find|rejected/i.test(message);
 }
 
 function webHeaders(credentials, referer) {
-  return {
+  const headers = {
     "User-Agent": browserUserAgent,
     "Accept": "*/*",
     "Accept-Language": "en-US,en;q=0.9",
+    "sec-ch-ua": "\"Chromium\";v=\"140\", \"Not=A?Brand\";v=\"24\", \"Google Chrome\";v=\"140\"",
+    "sec-ch-ua-mobile": "?0",
+    "sec-ch-ua-platform": "\"Windows\"",
+    "sec-fetch-dest": "empty",
+    "sec-fetch-mode": "cors",
+    "sec-fetch-site": "same-origin",
     "X-CSRFToken": credentials.csrf,
     "X-IG-App-ID": normalizedIgAppId(),
-    "X-ASBD-ID": "129477",
+    "X-IG-WWW-Claim": currentWwwClaim(),
     "X-Requested-With": "XMLHttpRequest",
     "Origin": instagramBase,
-    "Referer": referer || instagramBase,
+    "Referer": referer || `${instagramBase}/`,
     "Cookie": credentials.cookie
   };
+  const asbdId = normalizedIgAsbdId();
+  if (asbdId) headers["X-ASBD-ID"] = asbdId;
+  return headers;
+}
+
+function currentWwwClaim() {
+  if (typeof getItem === "function") {
+    const stored = stringValue(getItem("instagram.wwwClaim"));
+    if (stored) return stored;
+  }
+  return "0";
+}
+
+function rememberWwwClaim(headers) {
+  const claim = headerValue(headers, "x-ig-set-www-claim") || headerValue(headers, "ig-set-www-claim");
+  if (claim && typeof setItem === "function") setItem("instagram.wwwClaim", claim);
 }
 
 function normalizedCredentials() {
@@ -1037,11 +1125,17 @@ function normalizedCredentials() {
     throw new Error("Enter sessionid and csrftoken, or paste a full Cookie header containing both values.");
   }
 
+  const extras = {};
+  for (const name of extraCookieNames) {
+    extras[name] = stringInput(name).trim() || parsedCookie[name] || "";
+  }
+
   return {
     sessionId,
     csrf,
     userId,
-    cookie: completeCookieHeader(stringInput("cookie_header"), sessionId, csrf, userId)
+    extras,
+    cookie: completeCookieHeader(stringInput("cookie_header"), sessionId, csrf, userId, extras)
   };
 }
 
@@ -1058,13 +1152,17 @@ function parseCookieHeader(value) {
   return cookies;
 }
 
-function completeCookieHeader(header, sessionId, csrf, userId) {
+function completeCookieHeader(header, sessionId, csrf, userId, extras) {
   const trimmed = String(header || "").replace(/^cookie:\s*/i, "").trim();
   const cookies = parseCookieHeader(trimmed);
   const parts = trimmed ? trimmed.split(";").map(part => part.trim()).filter(Boolean) : [];
   if (!cookies.sessionid) parts.push(`sessionid=${sessionId}`);
   if (!cookies.csrftoken) parts.push(`csrftoken=${csrf}`);
   if (userId && !cookies.ds_user_id) parts.push(`ds_user_id=${userId}`);
+  for (const name of extraCookieNames) {
+    const value = extras && extras[name];
+    if (value && !cookies[name]) parts.push(`${name}=${value}`);
+  }
   return parts.join("; ");
 }
 
@@ -1309,6 +1407,10 @@ function normalizedBatchSize() {
 
 function normalizedIgAppId() {
   return stringInput("ig_app_id").trim() || defaultIgAppId;
+}
+
+function normalizedIgAsbdId() {
+  return stringInput("ig_asbd_id").trim() || defaultIgAsbdId;
 }
 
 function includeReels() {

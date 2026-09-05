@@ -8,9 +8,10 @@ use a Meta developer app.
 
 1. Run `node scripts/instagram-cookie-helper.mjs` from the repository root, log
    in to Instagram in the temporary browser window, then press Enter in the
-   terminal. The helper copies a minimal `sessionid=...; csrftoken=...;
-   ds_user_id=...` cookie header to the clipboard without printing the secret
-   values.
+   terminal. The helper copies a `sessionid=...; csrftoken=...; ds_user_id=...;
+   mid=...; ig_did=...` cookie header to the clipboard without printing the secret
+   values. Instagram's web session also needs `mid` and `ig_did` when the browser
+   set them; copying only `sessionid` often starts a login redirect loop.
 2. If you prefer to do it manually, open `instagram.com` in a browser where you
    are logged in, inspect a request to `www.instagram.com/api/v1/...`, and copy
    either the full `Cookie` request header or the individual `sessionid`,
@@ -49,8 +50,11 @@ or include them in screenshots.
 
 This connector uses Instagram's private web-session endpoints. Instagram can
 change response shapes, require a checkpoint, expire cookies, rate-limit the
-account, or block automated requests. If the feed stops loading, refresh the
-cookies by logging in again through the helper or your browser.
+account, or block automated requests. If Tapestry logs `too many HTTP redirects`
+for `www.instagram.com`, Instagram bounced the session to a login or checkpoint
+page instead of returning JSON. Re-run the cookie helper while logged in, paste
+the new Cookie Header (including `mid` and `ig_did` when present), and Verify
+the feed again.
 
 Like, Favorite, Save, and Repost actions use the same logged-in session and
 change your Instagram account when selected. The connector does not publish
